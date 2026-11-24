@@ -28,6 +28,10 @@ impl LocalNoteStore {
 
     /// `save`, refused when an editor session holds either id. The lease check
     /// and the write share one gate hold, so no attach can land between them.
+    /// A create skips the lease check ONLY because `save_locked(None, ..)`
+    /// installs through `install_new`: an exclusive create under a free name,
+    /// which cannot write the attached note even when it asks for that note's
+    /// name. If the create path ever writes an existing file, it must check too.
     pub fn save_unattached(
         &self,
         original_id: Option<&str>,
@@ -36,10 +40,9 @@ impl LocalNoteStore {
         modified_ms: Option<i64>,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
-        crate::editor_session::refuse_attached(
-            &self.root,
-            original_id.into_iter().chain([wanted_id]),
-        )?;
+        if let Some(original) = original_id {
+            crate::editor_session::refuse_attached(&self.root, [original, wanted_id])?;
+        }
         self.save_locked(original_id, wanted_id, content, modified_ms)
     }
 
@@ -89,19 +92,6 @@ impl LocalNoteStore {
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
-        self.flush_draft_locked(id, base, content)
-    }
-
-    /// `flush_draft`, refused when an editor session holds `id` (see `save_unattached`).
-    pub fn flush_draft_unattached(
-        &self,
-        id: &str,
-        base: &str,
-        content: &str,
-    ) -> Result<FlushDraftResult, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        crate::editor_session::refuse_attached(&self.root, [id])?;
         self.flush_draft_locked(id, base, content)
     }
 

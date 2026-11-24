@@ -24,6 +24,9 @@ struct RenameState {
     entry_path: Option<PathBuf>,
     entry: u64,
     old_half: Option<OldHalf>,
+    /// The last cookieless rename half that named a path still there, and its
+    /// entry: the old name of a rename, when the name was written again.
+    last_present: Option<(PathBuf, u64)>,
     /// Note paths a rename emptied, waiting to learn whether the note left
     /// the vault or was written again in place.
     vacated: Vec<PendingRename>,
@@ -228,11 +231,30 @@ impl<S: ChangeSink> EventProcessor<S> {
     fn rename_either(&self, state: &mut RenameState, event: Event, now: i64) {
         for path in event.paths {
             if path_exists(&path) {
-                self.new_half(state, path, "change");
+                self.present_half(state, path);
             } else {
                 self.old_half(state, path, now);
             }
         }
+    }
+
+    /// A cookieless rename half whose path exists, with no old half before it.
+    /// An old name written again since (an open note's own save) looks exactly
+    /// so, and the half just after it is the new name: the pair is guessed from
+    /// the entry order and offered to the store, which follows it only for an
+    /// editor's own recreation.
+    fn present_half(&self, state: &mut RenameState, path: PathBuf) {
+        let entry = state.entry;
+        let guessed = state
+            .last_present
+            .take_if(|(previous, at)| *at + 1 == entry && *previous != path);
+        if !self.new_half(state, path.clone(), "change") {
+            return;
+        }
+        if let Some((from, _)) = guessed {
+            self.recreated_move(&from, &path);
+        }
+        state.last_present = Some((path, entry));
     }
 
     /// Hold a cookieless old name for the entry after its own. Temp files
@@ -250,15 +272,22 @@ impl<S: ChangeSink> EventProcessor<S> {
     }
 
     /// Pair a cookieless new name with the old name of the entry just before
-    /// it. Without one it keeps its unpaired meaning (`unpaired_kind`).
-    fn new_half(&self, state: &mut RenameState, path: PathBuf, unpaired_kind: &str) {
+    /// it. Without one it keeps its unpaired meaning (`unpaired_kind`), and
+    /// this says it had none.
+    fn new_half(&self, state: &mut RenameState, path: PathBuf, unpaired_kind: &str) -> bool {
         let entry = state.entry;
         match state
             .old_half
             .take_if(|old| old.entry + 1 == entry && old.path != path)
         {
-            Some(old) => self.pair(state, old.path, path, unpaired_kind, old.at, false),
-            None => self.arrived(state, &path, unpaired_kind),
+            Some(old) => {
+                self.pair(state, old.path, path, unpaired_kind, old.at, false);
+                false
+            }
+            None => {
+                self.arrived(state, &path, unpaired_kind);
+                true
+            }
         }
     }
 
@@ -347,10 +376,20 @@ impl<S: ChangeSink> EventProcessor<S> {
             (Some(_), Some(_)) => {
                 self.arrived(state, &from, "change");
                 self.arrived(state, &to, unpaired_kind);
+                self.recreated_move(&from, &to);
             }
             (Some(_), None) => self.vacate(state, from, at),
             (None, Some(_)) => self.arrived(state, &to, unpaired_kind),
             (None, None) => {}
+        }
+    }
+
+    fn recreated_move(&self, from: &Path, to: &Path) {
+        if let (Some(from), Some(to)) = (
+            relative_note_path_any(&self.bases, from),
+            relative_note_path_any(&self.bases, to),
+        ) {
+            self.sink.recreated_move(&from, &to);
         }
     }
 

@@ -13,8 +13,7 @@ const hoisted = vi.hoisted(() => ({
   noteMocks: {
     handleExternalFileChange: vi.fn(async () => {}),
     refreshNotesFromStorage: vi.fn(async () => {}),
-    // The real note session (below) persists through these.
-    updateNote: vi.fn(),
+    // The real note session (createExternalChangeCoordinatorRealSession.test.ts) reads these.
     getNoteById: vi.fn(),
     readNote: vi.fn(async () => ''),
     _applyLocalMutation: vi.fn(),
@@ -64,13 +63,6 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     state.editorContent = content;
     state.savedContent = content;
   });
-  const rebaseSavedContent = vi.fn((content: string) => {
-    state.savedContent = content;
-  });
-  const applyRemoteRename = vi.fn((id: string, title: string) => {
-    state.originalId = id;
-    state.title = title;
-  });
   const cancelAndClear = vi.fn(() => {
     state.originalId = null;
   });
@@ -78,7 +70,6 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     get title() {
       return state.title;
     },
-    content: 'base',
     get originalId() {
       return state.originalId;
     },
@@ -107,9 +98,10 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
       return state.composing;
     },
     debouncedSave: vi.fn(),
+    editorEdited: vi.fn(),
     resumeDraftPersistence: vi.fn(),
     flushSave: vi.fn(async () => {}),
-    runBeforePendingSave: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+    checkpointEditor: vi.fn(async () => {}),
     runWithSaveLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
     loadNote: vi.fn(async () => {}),
     handleTitleInput: vi.fn(),
@@ -119,14 +111,10 @@ export function makeSession(overrides: Partial<SessionState> = {}) {
     seedOpenNote: vi.fn(),
     cancelAndClear,
     applyExternalContent,
-    rebaseSavedContent,
-    applyRemoteRename,
   } satisfies NoteSession;
   return {
     applyExternalContent,
-    applyRemoteRename,
     cancelAndClear,
-    rebaseSavedContent,
     session,
     state,
   };
@@ -138,13 +126,7 @@ export function makeCoordinator(
 ) {
   const notifySaved = vi.fn();
   const showToast = vi.fn();
-  const followRename = vi.fn((fromId: string, toId: string) => {
-    if (sessionBundle.state.originalId === fromId) {
-      sessionBundle.state.originalId = toId;
-    }
-  });
   const coordinator = createExternalChangeCoordinator({
-    followRename,
     session: sessionBundle.session,
     notifySaved,
     showToast,
@@ -152,7 +134,6 @@ export function makeCoordinator(
   });
   return {
     coordinator,
-    followRename,
     notifySaved,
     showToast,
     ...sessionBundle,

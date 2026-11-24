@@ -13,7 +13,6 @@ function workflows() {
     onNoteIdsDeleted: vi.fn(),
     onSelect: vi.fn(),
     onActiveNoteDeleted: vi.fn(),
-    onActiveNoteMoved: vi.fn(),
     onNewNoteInFolder: vi.fn(),
   });
 }

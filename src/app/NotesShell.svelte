@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { isTauri } from '$lib/platform';
+  import { isTauri, noteEditorHost } from '$lib/platform';
   import { saveConfig } from '$lib/platform/tauri';
   import {
     applyExternalImportMutation,
@@ -10,7 +10,7 @@
     whenNotesReady,
   } from '$features/notes/notes.svelte';
   import { startExternalFileOpen } from '$features/notes/externalFileOpen';
-  import { createNoteSession, type ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
+  import { createNoteSession } from '$features/notes/noteSession.svelte';
   import ForYouPage from '$features/notes/ForYouPage.svelte';
   import SearchPopup from '$features/search/SearchPopup.svelte';
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
@@ -31,18 +31,15 @@
   import NoteWorkspace, { type EditorApi } from './components/NoteWorkspace.svelte';
   import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
   import { createNewNote } from './createNewNote';
+  import { createEditorMountReattach } from './createEditorMountReattach';
   import { createTabNoteTransition } from './createTabNoteTransition';
+  import { createTabRenames } from './createTabRenames';
   import { puppetRefusal, puppetVerb, registerPuppetVerbs } from './puppet/puppetRegistry';
   import { installNotesShellTestHook } from './installNotesShellTestHook';
   import { registerNotesShellPuppet } from './registerNotesShellPuppet';
   import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
   import { resetAllNotes } from './resetAllNotes';
-  import {
-    hashForNoteId,
-    noteIdFromPath,
-    parseNoteIdFromHash,
-    resolveDesktopWikilinkTarget,
-  } from './router';
+  import { hashForNoteId, noteIdFromPath, parseNoteIdFromHash } from './router';
   import { startNativeShell } from './startNativeShell';
   import { SIDEBAR_COLLAPSED_KEY, startTabsPersistence } from './startTabsPersistence';
 
@@ -63,8 +60,6 @@
   // the only caller that asks for one.
   let settingsSection = $state<'license' | null>(null);
   let searchOpen = $state(false);
-  /** The editor instance the session's open note was last handed to. */
-  let attachedEditor: EditorApi | undefined;
   let lastWikilinkEditor: EditorApi | undefined;
   let lastWikilinkNoteIds = '';
 
@@ -77,38 +72,54 @@
     writeHash(noteId);
   }
 
-  let reconcileOpenNote: (
-    id: string,
-    parkedDraft: ParkedDraftSnapshot,
-  ) => Promise<unknown> = async () => false;
+  function logEditorOpenFailure(error: unknown): void {
+    console.warn('The editor could not open the note:', error);
+  }
+
+  const notMounted = () => Promise.reject(new Error('the editor is not mounted'));
+
+  const renameTabs = createTabRenames({
+    attachedNoteId: () => editor?.heldNoteId() ?? null,
+    loaded: (id) => tabTransition.setLoadedNoteId(id),
+  });
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
-    setEditorContent: (content) => editor?.setContent(session.originalId ?? '', content),
-    openEditorNote: (id, content) => editor?.openNote(id, content),
+    getEditorSavedSource: () => editor?.savedSource(),
+    getEditorNoteId: () => editor?.heldNoteId() ?? null,
+    // While a test holds saves the editor counts as settled: nothing more is written.
+    isEditorIdle: () => testSavesHeld || (editor?.idle() ?? true),
+    // The editor re-reads the note from its host.
+    reloadEditorNote: () => void editor?.reload().catch(logEditorOpenFailure),
+    takeOutsideEditorChange: () => void editor?.takeOutsideChange().catch(logEditorOpenFailure),
+    // Logged, and still rejected: a load whose editor did not open the note fails, so the
+    // tab goes back to the note it left (createTabNoteTransition).
+    openEditorNote: (id, discardUnsaved) => {
+      const opening = editor?.openNote(id, discardUnsaved);
+      opening?.catch(logEditorOpenFailure);
+      return opening;
+    },
+    saveEditorNote: () => (editor ? editor.save() : notMounted()),
+    renameEditorNote: (title) => (editor ? editor.rename(title) : notMounted()),
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
-    savesHeld: () => testSavesHeld,
     getNotes: getAllNotes,
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => tabsStore.activeNoteId,
     setPrevNoteId: (id) => tabTransition.setLoadedNoteId(id),
     getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
-    clearPendingFolder: () => tabsStore.setPendingFolder(tabsStore.activeTabId, null),
     onNoteRenamed: (fromId, toId) => {
-      // No `fromId` is a first save, which names the editor's untitled '' document, or a park,
-      // which moves the tab's note to its copy.
-      const heldId = fromId ?? (tabsStore.activeNoteId === 'new' ? '' : tabsStore.activeNoteId);
-      if (heldId !== null) editor?.retarget(heldId, toId);
-      if (fromId) tabsStore.applyRename(fromId, toId);
+      // No `fromId` moves the active tab: to the note created for a new tab, or to the copy a
+      // park left the draft in. The editor already holds `toId`.
+      if (fromId) renameTabs(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
       // A rename landing mid-switch would otherwise stamp a note the transition
       // never loaded, and the next click on that row no-ops.
       if (tabsStore.activeNoteId === toId) tabTransition.setLoadedNoteId(toId);
     },
-    reconcileOpenNote: (id, parkedDraft) => reconcileOpenNote(id, parkedDraft),
+    onNoteDeleted: (id) => pruneLocalDeletes([id]),
     navigate,
     isVaultLocked: () => vaultAvailability.unavailable,
   });
@@ -116,37 +127,23 @@
   const sync = createSyncManager({
     session,
     showToast: showGlobalToast,
-    onRename: (fromId, toId) => {
-      editor?.retarget(fromId, toId);
-      tabsStore.applyRename(fromId, toId);
-      if (session.originalId === fromId) tabTransition.setLoadedNoteId(toId);
-    },
+    onRename: renameTabs,
     pruneTabsForDeletedIds: (goneIds) => {
       const gone = new Set(goneIds);
       tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
     },
   });
-  reconcileOpenNote = sync.reconcileOpenNote;
   const stopRelinks = onNotesRelinked(session.noteRelinked);
+
+  const editorMountReattach = createEditorMountReattach<EditorApi['openNote']>({
+    isEditorBound: (mountedOpenNote) => editor?.openNote === mountedOpenNote,
+    sessionHoldsNote: () => session.originalId !== null,
+    reattachEditor: session.reattachEditor,
+  });
 
   function closeActiveNote(): void {
     tabsStore.openNote(null, 'current');
     session.cancelAndClear();
-  }
-
-  function retargetActiveNote(fromId: string, toId: string, title: string): void {
-    tabsStore.applyRename(fromId, toId);
-    // The session follows only a note it still holds; it may have moved on.
-    if (session.originalId !== fromId) return;
-    editor?.retarget(fromId, toId);
-    session.applyRemoteRename(toId, title);
-    tabTransition.setLoadedNoteId(toId);
-  }
-
-  function applyLocalRenames(renames: Array<{ from: string; to: string }>): void {
-    for (const rename of renames) {
-      tabsStore.applyRename(rename.from, rename.to);
-    }
   }
 
   function pruneLocalDeletes(ids: string[]): void {
@@ -158,7 +155,6 @@
     getActiveNoteId: () => session.originalId,
     runWithActiveNoteLock: session.runWithSaveLock,
     showToast: showGlobalToast,
-    onMoved: retargetActiveNote,
     onDeleted: (id) => pruneLocalDeletes([id]),
     onActiveNoteDeleted: closeActiveNote,
   });
@@ -166,7 +162,6 @@
   const tabTransition = createTabNoteTransition({
     loadNote: session.loadNote,
     getNoteBody: () => noteBody,
-    isNoteStreaming: () => editor?.isStreaming() ?? false,
   });
 
   function readSidebarView(): SidebarView {
@@ -234,17 +229,6 @@
     if (mode !== 'background') searchOpen = false;
   }
 
-  function openWikilink(
-    title: string,
-    gesture: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'button'>,
-  ): void {
-    const noteId = resolveDesktopWikilinkTarget(
-      title,
-      getAllNotes().map((note) => note.id),
-    );
-    openNote(noteId, gesture);
-  }
-
   function handleHashChange(): void {
     if (!tabsStore.hydrated) return;
     const noteId = parseNoteIdFromHash(window.location.hash);
@@ -290,12 +274,8 @@
      * the same chord while it is up (searchPopupShortcuts.ts). A Home tab has
      * no document, so both accelerators are no-ops there. */
     findEnabled: () => !searchOpen && Boolean(activeNoteId),
-    openFind: () => {
-      editor?.openFind();
-    },
-    stepFind: (direction) => {
-      editor?.stepFind(direction);
-    },
+    openFind: () => editor?.openFind(),
+    stepFind: (direction) => editor?.stepFind(direction),
   });
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,
@@ -334,7 +314,8 @@
     // just wrote has measured nothing. This reports the editor's REAL focus, so
     // an assertion on it can fail (tests/editor-focus-signal.spec.ts).
     isEditorFocused: () => editor?.hasFocus() ?? false,
-    holdSaves: (held) => {
+    holdSaves: async (held) => {
+      await (await noteEditorHost()).editorHoldSaves(held);
       testSavesHeld = held;
     },
     getState: () => ({
@@ -396,18 +377,8 @@
     writeHash(tabsStore.activeNoteId);
   });
 
-  /* A REPLACED editor component mounts empty, under a session that still holds
-   * the open note — a blank page over a file with content. The editor refuses
-   * to report that empty document as the note (milkdown/hostHandle.ts
-   * `getContent`), so it can no longer be saved over the file; this hands the
-   * note back so the user sees it again. A dev hot reload is what does this
-   * today. */
   $effect(() => {
-    const currentEditor = editor;
-    if (!currentEditor) return;
-    const previousEditor = attachedEditor;
-    attachedEditor = currentEditor;
-    if (previousEditor !== undefined && previousEditor !== currentEditor) session.reattachEditor();
+    if (editor) untrack(editorMountReattach.editorBound);
   });
 
   $effect(() => {
@@ -463,10 +434,9 @@
       onselectview={selectSidebarView}
       onselectnote={openNote}
       onrunwithactivenotelock={session.runWithSaveLock}
-      onnoteidsrenamed={applyLocalRenames}
+      onnoteidsrenamed={(renames) => renames.forEach(({ from, to }) => renameTabs(from, to))}
       onnoteidsdeleted={pruneLocalDeletes}
       onactivenotedeleted={closeActiveNote}
-      onactivenotemoved={retargetActiveNote}
       onnewnote={() => createNewNote()}
       onnewnoteinfolder={createNewNote}
       onhome={() => tabsStore.openNote(null, 'current')}
@@ -496,9 +466,10 @@
         {notes}
         actions={noteActions}
         active={activeNoteId !== null}
-        onopenlink={openWikilink}
         onfocuschange={handleEditorFocusChange}
         oncompositionend={handleEditorCompositionEnd}
+        onopenlink={openNote}
+        oneditormount={editorMountReattach.editorMounted}
         bind:editorApi={editor}
         bind:noteBodyEl={noteBody}
         bind:titleEl={titleTextarea}

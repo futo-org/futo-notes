@@ -17,31 +17,19 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
-        self.save_draft_as_locked(id, wanted_id, base, content)
+        Ok(self.save_draft_as_locked(id, wanted_id, base, content)?.1)
     }
 
-    /// `save_draft_as`, refused when an editor session holds either id (see
-    /// `save_unattached`).
-    pub fn save_draft_as_unattached(
+    /// Caller holds the store gate and the vault mutation guard. Only the
+    /// rename arm moves a matching attachment (`IdentityTransition`); after a
+    /// park or a recreate the caller follows it (`StoreEditorSession::rename_title`).
+    pub(crate) fn save_draft_as_locked(
         &self,
         id: &str,
         wanted_id: &str,
         base: &str,
         content: &str,
-    ) -> Result<MutationResult, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        crate::editor_session::refuse_attached(&self.root, [id, wanted_id])?;
-        self.save_draft_as_locked(id, wanted_id, base, content)
-    }
-
-    fn save_draft_as_locked(
-        &self,
-        id: &str,
-        wanted_id: &str,
-        base: &str,
-        content: &str,
-    ) -> Result<MutationResult, String> {
+    ) -> Result<(FlushDisposition, MutationResult), String> {
         paths::note_path(&self.root, id)?;
         paths::note_path(&self.root, wanted_id)?;
         // An explicit move may create its requested destination folder. A title
@@ -55,21 +43,26 @@ impl LocalNoteStore {
                     content,
                     create_destination_parent,
                 )?;
-                if let Some(mutation) = parked.mutation {
-                    return Ok(mutation);
-                }
-                let FlushDisposition::ParkedConflict { parked_id } = parked.disposition else {
+                let FlushDisposition::ParkedConflict { parked_id } = &parked.disposition else {
                     unreachable!("park always returns a conflict disposition")
                 };
-                let metadata = vault::metadata(&self.root, &parked_id)
-                    .ok_or_else(|| "parked draft metadata unavailable".to_owned())?;
-                Ok(self.upsert_mutation(metadata))
+                let mutation = match parked.mutation {
+                    Some(mutation) => mutation,
+                    None => self.upsert_mutation(
+                        vault::metadata(&self.root, parked_id)
+                            .ok_or_else(|| "parked draft metadata unavailable".to_owned())?,
+                    ),
+                };
+                Ok((parked.disposition, mutation))
             }
             Ok(current) => {
-                if current != content {
+                let disposition = if current == content {
+                    FlushDisposition::Converged
+                } else {
                     self.write_draft_raw(id, content, None)?;
-                }
-                self.rename_raw(id, wanted_id)
+                    FlushDisposition::Wrote
+                };
+                Ok((disposition, self.rename_raw(id, wanted_id)?))
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 let metadata = self.install_with_parent_policy(
@@ -78,7 +71,7 @@ impl LocalNoteStore {
                     None,
                     create_destination_parent,
                 )?;
-                Ok(self.upsert_mutation(metadata))
+                Ok((FlushDisposition::Recreated, self.upsert_mutation(metadata)))
             }
             Err(error) => Err(io_error(error)),
         }
@@ -96,6 +89,8 @@ impl LocalNoteStore {
         let _vault_mutation = vault_mutation_guard()?;
         let folder = sanitize_folder_path(folder);
         let (_, title) = split_id(id);
-        self.save_draft_as_locked(id, &make_id(&folder, &title), base, content)
+        Ok(self
+            .save_draft_as_locked(id, &make_id(&folder, &title), base, content)?
+            .1)
     }
 }

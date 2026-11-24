@@ -9,7 +9,8 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **`app/`** owns application composition, routing, bootstrap, and Tauri shell wiring. `App.svelte` and `main.ts` are thin framework entry points.
 - **`features/`** owns complete capabilities. Components, reactive state, boundary shims, and tests stay with the feature that changes them.
 - **`features/editor/`** owns the note editor: shared chrome (`NoteTagBar.svelte`), the paste sink, the fence-language set, and the keyboard shell hook.
-- **`features/editor/milkdown/`** owns the desktop editor — Milkdown (ProseMirror), WYSIWYG, mounted through `app/components/NoteWorkspace.svelte`. `editor-embed/main.ts` mounts it as a standalone browser fixture; mobile uses native Rust editor sessions. The suites live in `tests/editor-embed-milkdown.spec.ts` (bridge contract), `-block-drag` (gutter-handle and long-press block drag), `-progressive` (progressive open, BOM, large notes), `-toolbar` (toolbar command parity), `-interactive` (list continuation, table editing keys, link hit area), `-parity`, `-wikilinks`, `-compat`, `-deep-nesting` and `tests/editor-embed-webview-floor.spec.ts`. Run the lot with `pnpm run test:e2e:editor-embed`.
+- **`features/editor/desktop/`** owns the desktop editor, mounted by `app/components/NoteWorkspace.svelte`: a `contenteditable` view over the Rust editor engine (WASM), with each open note attached to the desktop host (`lib/platform/tauri/editorHost.ts`, `docs/architecture/text-first-editor-desktop-host.md`), which saves it and owns which note it is (moves a store workflow makes included) and what it last saved. The note session follows it (`onnote`, `onsaved`, `savedSource`) and asks only for a title's rename (`rename`), a save now (`save`) and a switch (`openNote`); the session never writes a body or keeps its own baseline.
+- **`features/editor/milkdown/`** owns the Milkdown (ProseMirror) WYSIWYG editor, which no app mounts: `editor-embed/main.ts` mounts it as a standalone browser fixture; desktop uses `features/editor/desktop/` and mobile uses native Rust editor sessions. The suites live in `tests/editor-embed-milkdown.spec.ts` (bridge contract), `-block-drag` (gutter-handle and long-press block drag), `-progressive` (progressive open, BOM, large notes), `-toolbar` (toolbar command parity), `-interactive` (list continuation, table editing keys, link hit area), `-parity`, `-wikilinks`, `-compat`, `-deep-nesting` and `tests/editor-embed-webview-floor.spec.ts`. Run the lot with `pnpm run test:e2e:editor-embed`.
 - **`features/notes/`** owns reactive note projection state. `notes.svelte.ts` holds `notesCache`, applies committed `LocalNoteMutation` results, and never predicts collision, relink, migration, or search behavior.
 - **`features/sync/`** owns the E2EE client, sync lifecycle, watcher batching, write suppression, and external-change coordination.
 - **`features/search/`** owns search presentation. The Rust local-note store owns the sole BM25 lifecycle.
@@ -21,7 +22,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 ## Key Constraints
 
 - **Editor styling lives with the editor.** `milkdownEditor.css` (imported by `MilkdownEditor.svelte`) owns the `.ProseMirror` surface and every element rendered inside it. What is left under `src/styles/` is only what is genuinely shared beyond that surface: `code-tokens.css` (the `tok-*` fence palette, also read by the highlighter) and `markdown-links.css` (the `cm-md-*` link classes — a legacy name from the CodeMirror engine, not a CodeMirror selector — and the wikilink suggestion popup; the wikilink chip paint itself lives in `milkdownEditor.css` because a layered rule here loses to the editor's unlayered `a` rule). `markdown.css` is the facade over those two.
-- **IMPORTANT**: Styles in `@layer(components)` lose to *any* unlayered CSS — on cascade origin, not
+- **IMPORTANT**: Styles in `@layer(components)` lose to _any_ unlayered CSS — on cascade origin, not
   specificity. Every `.css` a Svelte component imports directly (`folderTree.css`, `tabsStrip.css`,
   `settings.css`, `modal.css`, `feedback.css`, `crashReportDialog.css`, …) is unlayered; none of
   them declare `@layer`. A layered rule can look applied on an ancestor's computed style and still
@@ -53,11 +54,11 @@ The dev-only `window.__testSync` hooks and the MCP bridge are documented once, i
 
 ## Verification (Required)
 
-| What changed | Run |
-|---|---|
-| Components / UI | `just build` → `pnpm run test:e2e:smoke` + the targeted spec |
-| lib/ logic | `just build` → `just test-unit` |
-| CSS / Tailwind | `just build` → visual spot-check via screenshot |
+| What changed    | Run                                                                                                                         |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Components / UI | `just build` → `pnpm run test:e2e:smoke` + the targeted spec                                                                |
+| lib/ logic      | `just build` → `just test-unit`                                                                                             |
+| CSS / Tailwind  | `just build` → visual spot-check via screenshot                                                                             |
 | Editor behavior | Above + `pnpm run test:e2e:editor-embed` + manual test in `just tauri-dev` (WebView quirks don't always show in Playwright) |
 
 Writing the tests:

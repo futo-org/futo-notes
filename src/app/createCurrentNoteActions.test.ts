@@ -25,7 +25,6 @@ function makeActions(overrides: Partial<Parameters<typeof createCurrentNoteActio
     getActiveNoteId: () => 'Projects/Roadmap',
     runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
     showToast: vi.fn(),
-    onMoved: vi.fn(),
     onDeleted: vi.fn(),
     onActiveNoteDeleted: vi.fn(),
     ...overrides,
@@ -74,13 +73,11 @@ describe('createCurrentNoteActions', () => {
   it('shows a failure toast and does not reject when the move fails', async () => {
     mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
     const showToast = vi.fn();
-    const onMoved = vi.fn();
-    const actions = makeActions({ showToast, onMoved });
+    const actions = makeActions({ showToast });
 
     await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
 
     expect(showToast).toHaveBeenCalledWith({ path: 'notes.errors.moveFailed' });
-    expect(onMoved).not.toHaveBeenCalled();
   });
 });
 
@@ -208,11 +205,9 @@ describe('createCurrentNoteActions note targeting', () => {
       id === 'Projects/Renamed roadmap' ? { id } : undefined,
     );
     mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap', mtime: 1 });
-    const onMoved = vi.fn();
     const actions = makeActions({
       getActiveNoteId: () => activeId,
       runWithActiveNoteLock,
-      onMoved,
     });
 
     await actions.moveToFolder('Archive');
@@ -224,11 +219,6 @@ describe('createCurrentNoteActions note targeting', () => {
     );
     expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.moveNote.mock.invocationCallOrder[0],
-    );
-    expect(onMoved).toHaveBeenCalledWith(
-      'Projects/Renamed roadmap',
-      'Archive/Renamed roadmap',
-      'Renamed roadmap',
     );
   });
 });

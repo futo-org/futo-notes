@@ -90,6 +90,7 @@ pub(crate) fn run() {
             crate::puppet_notes_dir::puppet_notes_dir_refusal,
             crate::puppet_screenshot::puppet_screenshot,
             crate::dev_open_url::dev_open_url,
+            crate::open_url_behind::open_url_behind,
             crate::image_commands::fs_paste_clipboard_image,
             crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
@@ -159,7 +160,6 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_exists,
             crate::local_notes::local_notes_import_external,
             crate::local_notes::local_notes_save,
-            crate::local_notes::local_notes_flush_draft,
             crate::local_notes::local_notes_delete,
             crate::local_notes::local_notes_move,
             crate::local_notes::local_notes_create_folder,
@@ -171,11 +171,14 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_wait_until_search_ready,
             crate::local_notes::local_notes_rescan,
             crate::local_notes::local_notes_refresh_external_changes,
-            crate::editor_host::editor_open,
+            crate::editor_host::editor_switch,
             crate::editor_host::editor_request,
             crate::editor_host::editor_checkpoint,
             crate::editor_host::editor_close,
+            crate::editor_host::editor_rename,
+            crate::editor_host::editor_reload,
             crate::editor_host::editor_note_ids,
+            crate::editor_host::editor_hold_saves,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -210,6 +213,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             "[quit] cannot route terminate: through the close handler: {error}"
         );
     }
+    #[cfg(target_os = "linux")]
+    crate::terminate::install_signal_handlers(handle);
     crate::window_reveal::install(handle)?;
     crate::puppet_input::keep_drawing_when_hidden(handle);
     crate::instance_journal::install(handle);

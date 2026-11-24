@@ -16,5 +16,6 @@
   reload today, any `{#key}`/`{#if}` around the editor tomorrow — mounts empty
   under a session that still holds the note, and `''` there is what truncated
   three real notes on 2026-09-03. The desktop shell also re-hands the open note
-  to a new instance, so the reader gets it back. → milkdown/hostHandleContent.ts
-  `getContent`, NotesShell.svelte, noteSession.svelte.ts `reattachEditor`
+  to every editor that mounts, so the reader gets it back. →
+  milkdown/hostHandleContent.ts `getContent`, src/app/createEditorMountReattach.ts,
+  noteSession.svelte.ts `reattachEditor`, desktop/DesktopEditor.svelte `onmount`

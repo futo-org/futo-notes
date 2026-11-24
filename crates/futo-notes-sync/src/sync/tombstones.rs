@@ -107,13 +107,13 @@ pub(super) fn recover_stale_claims(root: &Path, pre_write: &PreWrite) {
     remove_orphan_sidecars(root, &names);
 }
 
+/// Caller holds the vault guard.
 fn claim_local_names(
     root: &Path,
     name: &str,
     object_id: &str,
     pre_write: &PreWrite,
 ) -> Result<Option<(String, String)>, String> {
-    let _vault_mutation = vault_mutation_guard()?;
     let (claim, sidecar) = claim_names(name, object_id);
     vault_fs::write_atomic(root, &sidecar, name.as_bytes())?;
     pre_write(name);
@@ -139,14 +139,13 @@ pub(super) fn claim_local(
     object_id: &str,
     pre_write: &PreWrite,
 ) -> Result<Option<(PathBuf, PathBuf)>, String> {
+    let _vault_mutation = vault_mutation_guard()?;
     claim_local_names(root, name, object_id, pre_write)
         .map(|claimed| claimed.map(|(claim, sidecar)| (root.join(claim), root.join(sidecar))))
 }
 
+/// Caller holds the vault guard.
 fn restore_claim(root: &Path, claim: &str, sidecar: &str, destination: &str) {
-    let Ok(_vault_mutation) = vault_mutation_guard() else {
-        return;
-    };
     if vault_fs::exists(root, destination).is_ok_and(|exists| !exists)
         && matches!(
             vault_fs::move_no_replace_strict(root, claim, destination),
@@ -187,6 +186,7 @@ fn tombstone_target(
         })
 }
 
+/// Caller holds the vault guard the claim was made under.
 fn park_divergent_claim(
     root: &Path,
     name: &str,
@@ -196,20 +196,20 @@ fn park_divergent_claim(
     summary: &mut SyncSummary,
 ) -> Result<(), String> {
     let (claim, sidecar) = claim_names;
-    let (copy, rename_result) = {
-        let _vault_mutation = vault_mutation_guard()?;
-        let names = local_files(root)?
-            .into_iter()
-            .map(|file| file.name)
-            .collect();
-        let mut copy = collision_conflict_filename(name, object_id);
-        if vault_fs::exists(root, &copy)? {
-            copy = conflict_filename(name, &conflict_date(), &names);
-        }
-        pre_write(&copy);
-        let rename_result = vault_fs::move_no_replace_strict(root, claim, &copy);
-        (copy, rename_result)
-    };
+    let names = local_files(root)?
+        .into_iter()
+        .map(|file| file.name)
+        .collect();
+    let mut copy = collision_conflict_filename(name, object_id);
+    if vault_fs::exists(root, &copy)? {
+        copy = conflict_filename(name, &conflict_date(), &names);
+    }
+    pre_write(&copy);
+    let rename_result = vault_fs::move_no_replace_strict(root, claim, &copy);
+    if matches!(rename_result, Ok(true)) {
+        // The claim was `name`: an editor attached to it follows the copy.
+        futo_notes_core::files::note_moved(root, name, &copy);
+    }
     match rename_result {
         Ok(true) => {}
         Ok(false) => {
@@ -259,6 +259,9 @@ pub(super) fn apply_tombstone(
     let Some((name, expected_hash)) = tombstone_target(state, &object.id, ancestry) else {
         return Ok(());
     };
+    // One guard hold from the claim to the park: an editor attached to `name`
+    // must not save while its file is only the claim, or it recreates `name`.
+    let _vault_mutation = vault_mutation_guard()?;
     let Some((claim, sidecar)) = claim_local_names(root, &name, &object.id, pre_write)? else {
         state.object_map.remove(&name);
         return Ok(());
@@ -271,11 +274,7 @@ pub(super) fn apply_tombstone(
         }
     };
     if hash_sha256(&current) == expected_hash {
-        let remove_result = {
-            let _vault_mutation = vault_mutation_guard()?;
-            remove_if_present(root, &claim)
-        };
-        if let Err(error) = remove_result {
+        if let Err(error) = remove_if_present(root, &claim) {
             restore_claim(root, &claim, &sidecar, &name);
             return Err(error);
         }
@@ -296,10 +295,7 @@ pub(super) fn apply_tombstone(
             summary,
         )?;
     }
-    {
-        let _vault_mutation = vault_mutation_guard()?;
-        remove_if_present(root, &sidecar)?;
-    }
+    remove_if_present(root, &sidecar)?;
     state.object_map.remove(&name);
     summary.deleted += 1;
     summary.deleted_ids.push(note_id(&name));

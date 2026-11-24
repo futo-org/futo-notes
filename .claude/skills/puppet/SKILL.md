@@ -78,9 +78,10 @@ document the refused step never changed.
   empty, its title as created), on every platform, as a person's would be. Write into it
   before you leave it.
 - **A note is read where it shows**, as a person reads it: `doc`, receipts and
-  `show {"text"}` see the lines on screen; `state` says which note (`note`, its path), which
-  lines show (`onScreen`), `loading`, the selection. A change off screen reads `doc L40–42 changed off screen`.
-  (iOS `doc` also lists every line, off-screen ones marked, and the whole text and source.)
+  `show {"text"}` see the lines on screen (desktop's and iOS's `doc` list every line, naming
+  those off screen; iOS's adds the whole text and source); `state` says which note (`note`, its
+  path), which lines show (`onScreen`), `loading`, the selection. A change off screen reads
+  `doc L40–42 changed off screen`.
   Unseen text is reached with `ScrollToLine {"line"}` (or Find, `OpenFind` and `SetFindQuery`,
   to search for it); a verb aimed off screen is refused with the `ScrollToLine` batch.
 
@@ -102,9 +103,7 @@ just puppet relaunch                 # phones: close the app and open it again; 
 settings, `elements`, the screen's verbs (a row's own verb named once), the vault's size, and the
 open note's lines on screen when it has a note open. After an action, its receipt is what changed.
 
-JSON holding an apostrophe goes in double quotes, its own quotes escaped:
-`do OpenNote "{\"noteId\":\"mom's list\"}"`. The `'\''` and `'"'"'` tricks are refused as
-brace expansion; a refusal's suggested command is already written this way.
+JSON holding an apostrophe: `references/gotchas.md`.
 
 Reads answer about the whole app, whatever the screen shows, and never change it, except that
 `file` saves the open note first unless given `"save":false`:
@@ -174,7 +173,7 @@ nothing to trim:
 - A key pressed N times is one action: `press {"key":"Backspace","count":14}`.
 - To find one row, search a read: `elements | grep standup`.
 
-That covers every action (`do`, `tap`, `click`, `drag`, `scroll`, `type`, `press`, `relaunch`)
+That covers every action (`do`, `tap`, `click`, `drag`, `scroll`, `hover`, `type`, `press`, `relaunch`)
 and `look`: no `head`, `tail`, `grep` or `/dev/null` after one. In Claude Code a hook refuses one
 that has it.
 
@@ -193,10 +192,11 @@ mousedown that closes something, a drag that scrolls instead of selecting:
 ```bash
 just puppet click '{"x":…,"y":…}'                       # desktop: real mouse click into the web view
 just puppet click '{"x":…,"y":…,"hold":0.8}'            #   press and hold
-just puppet click '{"x":…,"y":…,"count":2}'             #   double-click; "button":"right" too
+just puppet click '{"x":…,"y":…,"count":2}'             #   double-click; "button":"right", "shift":true too
 just puppet tap '{"x":…,"y":…}'                         # iOS/Android: real touch; "hold" for a long press
-just puppet drag '{"x":…,"y":…,"x2":…,"y2":…}'          # everywhere; on a phone this is a swipe
+just puppet drag '{"x":…,"y":…,"x2":…,"y2":…}'          # everywhere; on a phone a swipe (desktop extras: gotchas.md)
 just puppet scroll '{"x":…,"y":…,"dy":300}'             # desktop: mouse wheel over the point, dy > 0 is down
+just puppet hover '{"x":…,"y":…}'                       # desktop: the mouse moved over the point, no button held
 just puppet type '{"text":"…"}'                         # real key presses into what has focus, every platform
 just puppet press '{"key":"Mod-b"}'                     #   one key (desktop: any chord), "count" repeats it
 ```
@@ -204,15 +204,17 @@ just puppet press '{"key":"Mod-b"}'                     #   one key (desktop: an
 Coordinates are the numbers `elements` reports, never a screenshot's: CSS pixels on desktop,
 and on a phone the screen's points (iOS) or dp (Android). `{"ref":"e12"}` (desktop) or
 `{"ref":"n4"}` (phone) in place of `x`,`y` aims where a click reaches that element; `tap`,
-`click` and `drag` take `{"text":"…"}` too: that text on screen. A touch the app never
-received is refused, not reported as `no change`. Every receipt is appended to
+`click`, `hover` and `drag` take `{"text":"…"}` too: that text on screen. A touch the app
+never received is refused, not reported as `no change`. Every receipt is appended to
 `.puppet/trace.jsonl`.
 
 Full command surface, verb map per platform, receipts and exit codes:
 `references/commands.md`. Traps that have cost real runs: `references/gotchas.md`.
 
 Scrolling, fast or real: `references/scrolling.md`.
-Editor verbs per platform, writing text (direct edit or real input), iOS's `doc` and receipts, and the argument names agents guess wrong most: `references/commands/editor-verbs.md`. `just test-ios-editor-stories` runs iOS's puppet-only editing story.
+Editor verbs per platform, writing text (direct edit or real input), iOS's `doc` and receipts,
+and the argument names agents guess wrong: `references/commands/editor-verbs.md`
+(`just test-ios-editor-stories` runs iOS's puppet-only editing story).
 
 ## The rules
 

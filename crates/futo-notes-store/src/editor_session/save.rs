@@ -1,6 +1,5 @@
 //! Debounced save schedule: 500 ms after the last edit, at most 2 s after the
-//! first unsaved one (the shipping editor's `BODY_SAVE_DEBOUNCE_MS` /
-//! `BODY_SAVE_MAX_WAIT_MS`).
+//! first unsaved one. The store owns these timings; hosts only ask `save_delay`.
 use std::time::Duration;
 
 use futo_notes_editor::{EditorError, EditorSession, Revision, SourceEdit};

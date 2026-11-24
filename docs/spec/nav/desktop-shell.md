@@ -177,9 +177,10 @@
   `applicationShouldTerminate:` added to tao's delegate answers
   `NSTerminateLater`, closes the window, and replies once the flush has exited
   the app (`RunEvent::ExitRequested`), so a logout or shutdown waits for the
-  flush and proceeds instead of being canceled. The updater's install and every relaunch (vault change,
+  flush and proceeds instead of being canceled. On Linux, SIGTERM and SIGHUP
+  (logout, shutdown, `kill`) close the window the same way. The updater's install and every relaunch (vault change,
   Update & restart) drain the save first too (RC-87). → app_menu.rs,
-  macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
+  macos_terminate.rs, terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
   flushBeforeExit.ts, tests/macos-quit-flush.mjs
 - The system "Reduce Motion" setting removes the shell's transitions and
   animations. → desktop-native.css

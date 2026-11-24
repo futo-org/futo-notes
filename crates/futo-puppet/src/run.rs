@@ -153,7 +153,7 @@ fn run_step(target: &Target, verb: Option<(String, Value)>) -> Result<ExitCode, 
     let observation = loop {
         let observation = call(target, "observe", &json!({}))?;
         let body = &observation.body;
-        // `editor:new` is an untitled buffer: empty by definition, nothing to wait for.
+        // `editor:new` is the moment before a new note's file exists: nothing to wait for.
         let opened_note = body["screen"]
             .as_str()
             .is_some_and(|s| s.starts_with("editor:") && s != "editor:new");

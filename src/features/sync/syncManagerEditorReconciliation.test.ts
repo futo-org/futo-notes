@@ -13,7 +13,6 @@ import {
   tauriEventMocks,
   yieldMicrotasks,
 } from './__test__/syncManagerHarness';
-import { updateNote } from '$features/notes/notes.svelte';
 
 beforeEach(resetSyncManagerHarness);
 
@@ -43,6 +42,7 @@ describe('editor reconciliation', () => {
     liveSynced!({ payload: { ...emptySummary } });
     await yieldMicrotasks();
 
+    live.disk.set('Live pull', 'peer content');
     liveSynced!({ payload: { ...emptySummary, updatedIds: ['Live pull'] } });
     await yieldMicrotasks();
 
@@ -174,18 +174,19 @@ describe('editor reconciliation', () => {
     });
 
     expect(bundle.applyExternalContent).not.toHaveBeenCalled();
-    // Not adopted, and the baseline the executor assigns is the one the session
-    // already held: the pulled bytes are not this editor's to claim as its last
-    // save (#89).
-    expect(bundle.rebaseSavedContent).toHaveBeenCalledExactlyOnceWith('old content');
+    // Not adopted, and the baseline stays the one the session already held: the
+    // pulled bytes are not this editor's to claim as its last save (#89). The
+    // host's next save, against that baseline, parks the draft.
+    expect(bundle.session.resumeDraftPersistence).toHaveBeenCalledOnce();
     expect(bundle.state.savedContent).toBe('old content');
     cleanup();
   });
 
-  it('settles an in-flight parked save before deciding how to reconcile pulled content', async () => {
-    openNoteMocks.classifyOpenNote
-      .mockResolvedValueOnce({ kind: 'adopt', content: 'peer content' })
-      .mockResolvedValueOnce({ kind: 'leave' });
+  it('settles an in-flight save before deciding how to reconcile pulled content', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
+      kind: 'adopt',
+      content: 'peer content',
+    });
     const save = controlledPromise<void>();
     const bundle = makeManager(
       makeSession({
@@ -198,10 +199,6 @@ describe('editor reconciliation', () => {
     );
     vi.mocked(bundle.session.flushSave).mockImplementationOnce(async () => {
       await save.promise;
-      await bundle.manager.reconcileOpenNote('Save race', {
-        content: 'local draft',
-        title: 'Save race',
-      });
       bundle.state.savePending = false;
       bundle.state.dirty = false;
     });
@@ -212,7 +209,6 @@ describe('editor reconciliation', () => {
     });
     await vi.waitFor(() => expect(bundle.session.flushSave).toHaveBeenCalledOnce());
     expect(openNoteMocks.classifyOpenNote).not.toHaveBeenCalled();
-    expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
 
     save.resolve();
     await reconciliation;
@@ -258,7 +254,7 @@ describe('editor reconciliation', () => {
     });
     const live = makeLiveNoteSession('Converged', 'old base');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.mocked(updateNote).mockRejectedValueOnce(new Error('write failed'));
+    live.saveEditorNote.mockRejectedValueOnce(new Error('write failed'));
     live.editContent('converged content');
     await expect(live.session.flushSave()).rejects.toThrow('write failed');
     warn.mockRestore();
@@ -270,7 +266,7 @@ describe('editor reconciliation', () => {
     await manager.handleSyncComplete({ ...emptySummary, updatedIds: ['Converged'] });
 
     expect(live.getEditorContent()).toBe('converged content');
-    expect(live.setEditorContent).not.toHaveBeenCalled();
+    expect(live.takeOutsideEditorChange).not.toHaveBeenCalled();
     expect(live.session.savedContent).toBe('converged content');
     expect(live.session.dirty).toBe(false);
   });

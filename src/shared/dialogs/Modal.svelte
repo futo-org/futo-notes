@@ -12,6 +12,7 @@
   import type { Snippet } from 'svelte';
 
   import { portal } from '$shared/dom/portal';
+  import { isTabKey } from '$shared/dom/tabKey';
 
   import { dismissable } from './dismissable';
   import {
@@ -85,7 +86,7 @@
   });
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Tab') return;
+    if (!isTabKey(event)) return;
     const items = focusableItems();
     if (items.length === 0) {
       event.preventDefault();

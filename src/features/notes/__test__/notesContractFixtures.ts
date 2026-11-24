@@ -49,7 +49,6 @@ export function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteSto
     read: vi.fn(),
     exists: vi.fn(),
     save: vi.fn(),
-    flushDraft: vi.fn(),
     move: vi.fn(),
     delete: vi.fn(),
     createFolder: vi.fn(),

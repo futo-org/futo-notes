@@ -11,7 +11,7 @@ most of the window.** Deltas are meaningful; absolute figures are not phone figu
 
 | Interaction | Change | Before → after (median) | Doc |
 |---|---|---|---|
-| Switching tabs (desktop) | read the incoming note while the outgoing save runs, per-id fence; per-tab editor state measured and rejected | read on the critical path 1–5 → 0 ms; switch is save-bound (15–80 ms) | `tab-switch-dirty-and-parse.md` |
+| Switching tabs (desktop) | per-tab editor state measured and rejected (the dirty-switch read overlap shipped then is gone: the editor's host reads the note it opens) | switch is save-bound (15–80 ms) | `tab-switch-dirty-and-parse.md` |
 | Moving blocks / drag frames | one pointer move per animation frame; `--budget` gate; **bug fix:** reflow preview was lost after every `setContent` | Android real app unchanged within noise (gap-frame p95 17.7 → 17.0 ms); WebKitGTK after-run blocked by a locked session | `block-drag-baseline.md` |
 | Opening a note | hold the streaming tail while a tap/focus is pending; first chunk sized to the viewport; read-ahead measured and rejected (read is 2–9 % of an open) | tap into a still-streaming real note 332 → 68 ms; keystroke while streaming 70 → 17 ms; first focus after a full load unchanged | `note-open-focus.md` |
 | Typing | one interaction ledger; dev-only keystroke tripwire; #113 attribution tool | tripwire cost: none measurable; emulator keystroke is 81–96 % browser style/layout, JS ~0.5 ms | `keystroke-attribution.md` |

@@ -35,6 +35,11 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
   tab (the current tab stays active); Ctrl/Cmd+Shift+click opens it in a new
   **foreground** tab. → tabsStore.svelte.ts `modeFromEvent`
   (regression-locked by tabsStore.test.ts)
+- The tab, the title and the editor always name the same note: a tab sent back to the note
+  it is leaving while the next one still opens opens that note again, and an untouched new
+  note returned to that way is kept. → app/createTabNoteTransition.ts `switchTo`,
+  features/notes/noteSession.svelte.ts `openLeavingUntouched`,
+  createTabNoteTransition.test.ts, noteSessionLoad.test.ts
 
 ## Keyboard shortcuts
 
@@ -52,7 +57,8 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Ctrl/Cmd+1…9 — jump to tab N; 9 always jumps to the last tab.
 - Editor: Ctrl/Cmd+B bold, Ctrl/Cmd+I italic, Ctrl/Cmd+E inline code,
   Ctrl/Cmd+Alt+X strikethrough, Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z undo/redo,
-  Tab/Shift+Tab indent/dedent in lists, Ctrl/Cmd+Alt+1…6 headings. These come
-  from the editor's own keymaps, not from app chrome. →
-  `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
-  `@milkdown/plugin-history`
+  Tab/Shift+Tab indent/dedent, Ctrl/Cmd+Alt+1…6 headings and Ctrl/Cmd+Alt+0 body
+  text. These come from the editor's own keys, not from app chrome. →
+  src/features/editor/desktop/keys.ts (desktop: editor/desktop/editing.md);
+  `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`, `@milkdown/plugin-history`
+  (mobile)

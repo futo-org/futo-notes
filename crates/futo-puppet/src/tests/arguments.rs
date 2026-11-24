@@ -73,6 +73,12 @@ fn gestures_and_screenshots_parse_as_their_own_invocations() {
         Invocation::Gesture(name, _) if name == "click"
     ));
     assert!(matches!(
+        parse_invocation(&strings(&["hover", r#"{"text":"milk"}"#])).unwrap(),
+        Invocation::Gesture(name, _) if name == "hover"
+    ));
+    // A hover holds no button.
+    assert!(parse_invocation(&strings(&["hover", r#"{"x":1,"y":2,"hold":1}"#])).is_err());
+    assert!(matches!(
         parse_invocation(&strings(&["screenshot"])).unwrap(),
         Invocation::Screenshot
     ));

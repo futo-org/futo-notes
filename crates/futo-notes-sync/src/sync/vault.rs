@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::{file_mtime_ms, vault_mutation_guard};
+use futo_notes_core::files::{file_mtime_ms, note_moved, vault_mutation_guard};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 
@@ -216,24 +216,52 @@ pub(super) fn write_content_if_changed(
     })
 }
 
-pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Result<bool, String> {
-    pre_write(name);
-    let _vault_mutation = vault_mutation_guard()?;
-    vault_fs::remove(root, name)
-}
-
 pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
     vault_fs::exists(root, name)
 }
 
+/// Moves a note and reports it ([`note_moved`]) under the same guard hold.
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     let _vault_mutation = vault_mutation_guard()?;
+    // A case-only move on a volume that folds case: one file, renamed in place.
+    if vault_fs::same_file(root, source, destination) {
+        vault_fs::rename_case(root, source, destination)?;
+        note_moved(root, source, destination);
+        return Ok(true);
+    }
     if vault_fs::exists(root, destination)? {
         return Err(format!(
             "collision destination already exists: {destination}"
         ));
     }
-    vault_fs::move_no_replace_strict(root, source, destination)
+    let moved = vault_fs::move_no_replace_strict(root, source, destination)?;
+    if moved {
+        note_moved(root, source, destination);
+    }
+    Ok(moved)
+}
+
+/// The note moves to a destination that already holds its bytes: the source is
+/// removed and the move reported ([`note_moved`]) under the same guard hold.
+/// Nothing is written, so no content can be lost; a destination that changed
+/// since the caller read it refuses instead.
+pub(super) fn adopt_local(
+    root: &Path,
+    source: &str,
+    destination: &str,
+    expected_hash: &str,
+) -> Result<bool, String> {
+    let _vault_mutation = vault_mutation_guard()?;
+    if content_hash(root, destination).as_deref() != Some(expected_hash) {
+        return Err(format!(
+            "adopted destination changed before the move: {destination}"
+        ));
+    }
+    let removed = vault_fs::remove(root, source)?;
+    if removed {
+        note_moved(root, source, destination);
+    }
+    Ok(removed)
 }
 
 pub(super) fn conflict_date() -> String {
@@ -298,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn watcher_registration_precedes_write_park_and_remove_mutations() {
+    fn watcher_registration_precedes_write_and_park_mutations() {
         let root = TempRoot::new();
         let note = root.0.join("note.md");
         std::fs::write(&note, "old body").unwrap();
@@ -336,20 +364,6 @@ mod tests {
         );
         assert!(!note.exists());
         assert_eq!(std::fs::read_to_string(&parked).unwrap(), "new body");
-
-        let remove_calls = Arc::new(Mutex::new(Vec::new()));
-        let callback_calls = Arc::clone(&remove_calls);
-        let callback_parked = parked.clone();
-        let before_remove = move |name: &str| {
-            callback_calls.lock().unwrap().push(name.to_owned());
-            assert_eq!(
-                std::fs::read_to_string(&callback_parked).unwrap(),
-                "new body"
-            );
-        };
-        assert!(remove_local(&root.0, &parked_name, &before_remove).unwrap());
-        assert_eq!(remove_calls.lock().unwrap().as_slice(), [parked_name]);
-        assert!(!parked.exists());
     }
 
     enum Fault {
@@ -453,21 +467,6 @@ mod tests {
 
         assert!(read_content(&root.0, "linked-file.md").is_err());
         assert!(read_content(&root.0, "linked-directory/secret.md").is_err());
-        assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn content_removals_never_follow_symlinked_parents() {
-        use std::os::unix::fs::symlink;
-
-        let root = TempRoot::new();
-        let outside = TempRoot::new();
-        let secret = outside.0.join("secret.md");
-        std::fs::write(&secret, "outside").unwrap();
-        symlink(&outside.0, root.0.join("linked-directory")).unwrap();
-
-        assert!(remove_local(&root.0, "linked-directory/secret.md", &|_| {}).is_err());
         assert_eq!(std::fs::read_to_string(secret).unwrap(), "outside");
     }
 

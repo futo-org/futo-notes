@@ -285,6 +285,20 @@ describe('gesture bracketing', () => {
     expect(dragstart(text.firstChild!)).toBe(true);
     runPuppetCommand('trace', { end: true });
   });
+
+  /** The web view's native text menu takes every later click until a person closes it. */
+  it('holds back the native menu of a right-click only while a gesture is bracketed', () => {
+    const contextmenu = () => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(contextmenu()).toBe(false);
+    runPuppetCommand('trace', { begin: true });
+    expect(contextmenu()).toBe(true);
+    runPuppetCommand('trace', { end: true });
+    expect(contextmenu()).toBe(false);
+  });
 });
 
 describe('elements changed', () => {

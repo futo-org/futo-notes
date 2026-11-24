@@ -13,11 +13,7 @@ import { createWriteSuppressor } from '$lib/platform/writeSuppression';
 beforeEach(resetCoordinatorMocks);
 
 describe('watcher rename semantics', () => {
-  it('follows and auto-pushes a paired rename of the open note', async () => {
-    syncMocks.classifyOpenNote.mockResolvedValueOnce({
-      kind: 'followRename',
-      toId: 'renamed',
-    });
+  it('auto-pushes a paired rename of the open note without asking the engine', async () => {
     const bundle = makeCoordinator();
 
     await bundle.coordinator.handleFileChange({
@@ -26,10 +22,10 @@ describe('watcher rename semantics', () => {
       from: 'active.md',
     });
 
-    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ id: 'active', renamedTo: 'renamed' }),
-    );
-    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    // The store moved the editor's attachment as the watcher reported it
+    // (`observe_external_change`): nothing to ask, the note is never taken for deleted.
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(bundle.notifySaved).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
   });
@@ -85,7 +81,7 @@ describe('watcher rename semantics', () => {
       expect.objectContaining({ id: 'active', renamedTo: null }),
     );
     expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('saved elsewhere');
-    expect(bundle.followRename).not.toHaveBeenCalled();
+    expect(bundle.state.originalId).toBe('active');
     expect(noteMocks.handleExternalFileChange).toHaveBeenCalledExactlyOnceWith('active.md');
     expect(bundle.notifySaved).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
@@ -125,10 +121,6 @@ describe('watcher rename semantics', () => {
 describe('watcher rename batching', () => {
   it('keeps an open-note rename actionable inside a bulk watcher batch', async () => {
     vi.useFakeTimers();
-    syncMocks.classifyOpenNote.mockResolvedValueOnce({
-      kind: 'followRename',
-      toId: 'renamed',
-    });
     const bundle = makeCoordinator();
 
     bundle.coordinator.watcherBatch.enqueue({
@@ -144,17 +136,15 @@ describe('watcher rename batching', () => {
     }
     await vi.advanceTimersByTimeAsync(50);
 
-    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(bundle.notifySaved).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
     vi.useRealTimers();
   });
 
-  it('follows an open note through a bulk rename chain in event order', async () => {
+  it("auto-pushes an open note's bulk rename chain once, asking nothing", async () => {
     vi.useFakeTimers();
-    syncMocks.classifyOpenNote
-      .mockResolvedValueOnce({ kind: 'followRename', toId: 'middle' })
-      .mockResolvedValueOnce({ kind: 'followRename', toId: 'final' });
     const bundle = makeCoordinator();
 
     bundle.coordinator.watcherBatch.enqueue({
@@ -175,10 +165,9 @@ describe('watcher rename batching', () => {
     }
     await vi.advanceTimersByTimeAsync(50);
 
-    expect(bundle.followRename.mock.calls).toEqual([
-      ['active', 'middle'],
-      ['middle', 'final'],
-    ]);
+    // The store moved the editor's attachment in event order; the session follows it.
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(bundle.notifySaved).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
     vi.useRealTimers();
@@ -186,10 +175,6 @@ describe('watcher rename batching', () => {
 
   it('preserves and auto-pushes an open-note rename drained after sync', async () => {
     vi.useFakeTimers();
-    syncMocks.classifyOpenNote.mockResolvedValueOnce({
-      kind: 'followRename',
-      toId: 'renamed',
-    });
     const bundle = makeCoordinator();
 
     bundle.coordinator.watcherBatch.setSyncActive(true);
@@ -202,7 +187,8 @@ describe('watcher rename batching', () => {
     bundle.coordinator.watcherBatch.drainPostSync();
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(bundle.followRename).toHaveBeenCalledExactlyOnceWith('active', 'renamed');
+    expect(syncMocks.classifyOpenNote).not.toHaveBeenCalled();
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
     expect(bundle.notifySaved).toHaveBeenCalledOnce();
     bundle.coordinator.stop();
     vi.useRealTimers();

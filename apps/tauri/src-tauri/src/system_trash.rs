@@ -24,6 +24,63 @@ pub(crate) fn folder_deletes_are_permanent(root: &Path) -> bool {
     deletes_are_permanent(root) || crate::platform_integration::is_flatpak()
 }
 
+/// macOS asks Finder first, so the Trash offers "Put Back" for the note. Finder
+/// gets a few seconds: one that cannot answer (a locked screen, a pending
+/// Automation prompt) would otherwise hold the store gate for its two-minute
+/// AppleEvent timeout. Then NSFileManager trashes it at once, without Put Back.
+#[cfg(target_os = "macos")]
+fn os_trash(path: &Path) -> Result<(), trash::Error> {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let Err(error) = finder_trash(path) else {
+        return Ok(());
+    };
+    // A Finder that answered late may still have moved it.
+    if !path.exists() {
+        return Ok(());
+    }
+    futo_notes_core::log_to_stderr!(
+        "Finder did not trash {path:?} ({error}); trashing without Put Back"
+    );
+    let mut context = trash::TrashContext::default();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context.delete(path)
+}
+
+/// Finder's delete of one path, the path passed as an argument (never spliced
+/// into the script), bounded by an AppleEvent timeout.
+#[cfg(target_os = "macos")]
+fn finder_trash(path: &Path) -> Result<(), String> {
+    let output = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            // Resolved before Finder sees it: inside the `tell`, Finder cannot get a POSIX file.
+            "set noteFile to (POSIX file (item 1 of argv)) as alias",
+            "-e",
+            "with timeout of 3 seconds",
+            "-e",
+            "tell application \"Finder\" to delete noteFile",
+            "-e",
+            "end timeout",
+            "-e",
+            "end run",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn os_trash(path: &Path) -> Result<(), trash::Error> {
+    trash::delete(path)
+}
+
 pub(crate) fn delete(path: &Path, label: &str) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
@@ -47,7 +104,7 @@ pub(crate) fn delete(path: &Path, label: &str) -> Result<(), String> {
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-    if let Err(error) = trash::delete(path) {
+    if let Err(error) = os_trash(path) {
         futo_notes_core::log_to_stderr!(
             "[{label}] trash::delete failed: {error}; falling back to hard delete"
         );

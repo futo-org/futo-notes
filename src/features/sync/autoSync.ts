@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { hasFileSystem, isTauri } from '$lib/platform';
+import { errorText } from '$shared/errorText';
 import {
   syncE2eeAuto,
   isE2eeConfigured,
@@ -118,7 +119,7 @@ async function performSync(
     if (!autoPaused) void ensureLiveSync();
     return summary;
   } catch (e) {
-    const error = e instanceof Error ? e : new Error(String(e));
+    const error = e instanceof Error ? e : new Error(errorText(e));
     callbacks.onSyncError(error, trigger);
     reportedSyncErrors.add(error);
     if (options.propagateErrors) throw error;

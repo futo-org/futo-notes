@@ -31,7 +31,7 @@
     "audit:languages": "node scripts/language-catalogs.mjs --audit",
     "check:arch-gate:portable": "pnpm run check:command-reachability && pnpm run check:platform-discipline && pnpm run check:drift && pnpm run check:agent-docs && pnpm run check:qa-input-safety && pnpm run check:theme-single-pace && pnpm run check:supporter-coin-glyph",
     "check:arch-gate": "pnpm run check:arch-gate:portable && pnpm run check:sync-contract",
-    "test:full": "node scripts/editor-deps.mjs && vitest run",
+    "test:full": "node scripts/editor-deps.mjs && node scripts/build-editor-wasm.mjs && vitest run",
     "test:e2e:smoke": "playwright test tests/p0-regressions.spec.ts",
     "test:editor-gauntlet:foreign:aggregate": "tsx tests/editor-gauntlet/aggregateForeignReports.ts",
     "test:editor-gauntlet:milkdown": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-split-torture.spec.ts",

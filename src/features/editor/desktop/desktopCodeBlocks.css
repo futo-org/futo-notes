@@ -1,0 +1,364 @@
+/* Fenced code blocks (lineElements.ts `drawLine`, codeBlockChrome.ts). A block's lines stay
+ * one element each, flat siblings: each paints its share of one card, a flat well (a
+ * translucent fill inside a hairline, no shadow), fill and side hairlines on every line, the
+ * top edge in the header above the first line, the bottom edge on the last. The fill and the
+ * hairline are tints of the text colour, as a quote's bars are: the selection is drawn behind
+ * the lines (highlight.ts) and shows through them. Code rows stay one line unit, so the caret,
+ * the highlight and the pointer measure them as any line; the header is the first line's top
+ * margin, outside its box, and the skirt, the card's bottom inset, the last line's padding.
+ * As in !300 a block reserves no page around its card: against an ordinary line it adds its
+ * 27px header and 10px skirt alone, and two blocks that touch stand 4px apart, the gap in the
+ * lower one's top margin (margins collapse, so it could not be the upper one's). */
+.desktop-editor {
+  --code-well: color-mix(in srgb, var(--color-text, #0f0f0f) 5%, transparent);
+  --code-hairline: color-mix(in srgb, var(--color-text, #0f0f0f) 10%, transparent);
+  --code-header: 27px;
+  --code-skirt: 10px;
+  --code-block-gap: 4px;
+  --code-corner: 10px;
+  --code-collar: 7px;
+  /* Line numbers count through the whole editor, not a line's siblings: a block can cross
+   * from one chunk of lines into the next. A block's first line sets the count to 1. */
+  counter-reset: code-line;
+}
+
+/* On the wrap, so the selection's card fill behind the editor (highlight.ts) takes it too. */
+.desktop-editor-wrap {
+  --code-radius: 6px;
+}
+
+/* A code block selected whole: its card filled with the selection colour, corners and all;
+ * highlight.ts squares a corner the highlight runs on past. */
+.desktop-selection > .code-card {
+  border-radius: var(--code-radius);
+}
+
+/* The gutter: the block's line count's digits wide (`--code-digits`, at least two, set on
+ * every line of a block alike), its numbers' ink one corner in from the card's edge, then one
+ * collar, the hairline rule, and one collar before the code. */
+.desktop-editor .line.code-line {
+  --code-rule: calc(var(--code-corner) + var(--code-digits, 2) * 1ch + var(--code-collar));
+  --code-rule-line: linear-gradient(var(--code-hairline), var(--code-hairline)) var(--code-rule) 0 /
+    1px 100% no-repeat;
+  --code-sides: inset 1px 0 var(--code-hairline), inset -1px 0 var(--code-hairline);
+  --code-gutter: calc(var(--code-rule) + 1px + var(--code-collar));
+  padding: 0 18px 0 var(--code-gutter);
+  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-size: 13px;
+  background: var(--code-rule-line), var(--code-well);
+  box-shadow: var(--code-sides);
+  counter-increment: code-line;
+}
+
+/* Its number: drawn, never text, so it is not selected, copied or a caret stop. A block of no
+ * height, its row hanging over the line's first, so renumbering a line lays out its number
+ * alone; not positioned, as a positioned box is a layer and WebKit walks every layer in the
+ * note after each keystroke's layout, nor a float, which the line's text is laid out around. */
+.desktop-editor .line.code-line::before {
+  content: counter(code-line);
+  content: counter(code-line) / '';
+  display: block;
+  box-sizing: border-box;
+  width: var(--code-rule);
+  height: 0;
+  margin-left: calc(-1 * var(--code-gutter));
+  padding-right: var(--code-collar);
+  text-align: right;
+  color: color-mix(in srgb, var(--color-muted, #737373) 65%, transparent);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* The header and the zone below the block are positioned in these; no other code line is
+ * positioned, for the same reason as its number. */
+.desktop-editor .line.code-line.first,
+.desktop-editor .line.code-line.last {
+  position: relative;
+}
+
+.desktop-editor .line.code-line.first {
+  margin-top: var(--code-header);
+  counter-set: code-line 1;
+}
+
+/* Right under another block, chunk boundaries included (blockNeighbours.ts
+ * `fitBlockNeighbours`): a fact on the line, not `:has()`, which WebKit checks again on every
+ * line added or removed. */
+.desktop-editor .line.code-line.under-block {
+  margin-top: calc(var(--code-header) + var(--code-block-gap));
+}
+
+.desktop-editor .line.code-line.last {
+  --code-rule-line: linear-gradient(var(--code-hairline), var(--code-hairline)) var(--code-rule) 0 /
+    1px calc(100% - var(--code-skirt)) no-repeat;
+  padding-bottom: var(--code-skirt);
+  border-radius: 0 0 var(--code-radius) var(--code-radius);
+  box-shadow:
+    var(--code-sides),
+    inset 0 -1px var(--code-hairline);
+}
+
+/* The header: the card's top, in the first line's top margin. Its name field on the left and
+ * its language field and copy button on the right. A control's box is its line plus one collar
+ * above and below, and fills the row inside its padding, so its fill stands 2px from the card's
+ * top as from its side; a field's ink is one corner from the card's edge. It holds no text
+ * node: the fields are inputs and the button draws its glyph (codeBlockChrome.ts). The arrow
+ * over the row, which selects the block; an I-beam over a field; a hand over the button. */
+.desktop-editor .code-header {
+  --code-collar-y: 3px;
+  --code-collar-trailing: 4px;
+  --code-ink-side: 0.083em;
+  --code-control-line: 18px;
+  --code-name-chars: 30ch;
+  --code-name-share: 45%;
+  --code-language-chars: 14ch;
+  --code-language-share: 30%;
+  --code-field-fill: color-mix(in srgb, var(--color-text, #0f0f0f) 7%, transparent);
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  box-sizing: border-box;
+  height: var(--code-header);
+  display: flex;
+  align-items: center;
+  padding: 2px calc(var(--code-corner) - var(--code-collar) - var(--code-ink-side)) 1px;
+  border-radius: var(--code-radius) var(--code-radius) 0 0;
+  background: var(--code-well);
+  box-shadow:
+    var(--code-sides),
+    inset 0 1px var(--code-hairline);
+  color: var(--color-muted, #737373);
+  font: 500 12px / 16px var(--font-sans, system-ui, sans-serif);
+  white-space: pre;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.desktop-editor .code-header-space {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A field is as wide as an invisible copy of its value (`data-value`), capped so neither eats
+ * the row: the name at 30 characters (its face is monospace) or 45% of the row on a narrow
+ * card, the language at 14 or 30% of it. The copy is clipped, or its whole width would widen
+ * the pane. Over the cap a field shows an ellipsis while read and scrolls while typed in. */
+.desktop-editor .code-field {
+  display: inline-grid;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(var(--code-name-chars), var(--code-name-share));
+  overflow: hidden;
+  font:
+    400 11px / var(--code-control-line) 'Martian Mono',
+    ui-monospace,
+    monospace;
+}
+
+.desktop-editor .code-language-field {
+  max-width: min(var(--code-language-chars), var(--code-language-share));
+}
+
+.desktop-editor .code-field::after,
+.desktop-editor .code-name,
+.desktop-editor .code-language {
+  box-sizing: border-box;
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+  padding: var(--code-collar-y) var(--code-collar);
+  background: transparent;
+  color: var(--color-muted, #737373);
+  font: inherit;
+  outline: none;
+}
+
+.desktop-editor .code-field::after {
+  content: attr(data-value);
+  visibility: hidden;
+  white-space: pre;
+}
+
+.desktop-editor .code-field > input {
+  width: 100%;
+}
+
+/* Room for the caret past the value's end comes out of the trailing collar. The editor's
+ * transparent caret and selection are the note's: a field draws its own. */
+.desktop-editor .code-name,
+.desktop-editor .code-language {
+  padding-right: var(--code-collar-trailing);
+  text-align: left;
+  text-overflow: ellipsis;
+  caret-color: var(--color-text, #0f0f0f);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* Only a focused field's own selection: a note's selection running across the header must not
+ * tint the field. */
+.desktop-editor .code-header input:focus::selection {
+  background: var(--color-selection, #ffe4d1);
+}
+
+.desktop-editor .code-name:focus,
+.desktop-editor .code-language:focus {
+  background: var(--code-field-fill);
+  color: var(--color-text, #0f0f0f);
+  text-overflow: clip;
+}
+
+/* A placeholder shows on the focused field, on the header of the block the caret is in, and
+ * on a hovered header. */
+.desktop-editor .code-header input::placeholder {
+  color: var(--color-muted, #737373);
+  opacity: 0;
+}
+
+.desktop-editor .code-header input:focus::placeholder,
+.desktop-editor .code-header.active input::placeholder {
+  opacity: 0.7;
+}
+
+/* The copy button: a square as tall as a field, its glyph centred. */
+.desktop-editor .code-copy {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: calc(var(--code-control-line) + 2 * var(--code-collar-y));
+  height: calc(var(--code-control-line) + 2 * var(--code-collar-y));
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted, #737373);
+  outline: none;
+  cursor: pointer;
+}
+
+.desktop-editor .code-copy::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  background-color: currentColor;
+  opacity: 0.7;
+  -webkit-mask: var(--code-copy-glyph) center / 12px no-repeat;
+  mask: var(--code-copy-glyph) center / 12px no-repeat;
+  --code-copy-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+}
+
+/* Copied: the glyph turns to a check in the primary colour for a moment, nothing else moves. */
+.desktop-editor .code-copy.copied::before {
+  --code-copy-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-color: var(--color-primary, currentColor);
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .desktop-editor .code-copy:hover::before {
+    opacity: 1;
+  }
+
+  .desktop-editor .code-name:hover,
+  .desktop-editor .code-language:hover,
+  .desktop-editor .code-copy:hover {
+    background: var(--code-field-fill);
+    color: var(--color-text, #0f0f0f);
+  }
+
+  .desktop-editor .code-header:hover input::placeholder {
+    opacity: 0.7;
+  }
+}
+
+/* "Add a line above" and "add a line below" (codeBlockEdges.ts), as !300 draws them: muted 10px
+ * text inside the card, shown while the pointer is on the edge that holds it (its `shown`,
+ * codeBlockEdgeReveal.ts). "Above" is a flex item in the header's spacer, so a long name squeezes
+ * it; "below" sits at the foot of the skirt, over a zone that runs from the skirt to the next
+ * block's header, or two lines under a block that ends the note (as far as a press below the
+ * last line still lands on it, hitTest.ts). Neither takes room: the zone is positioned, the
+ * label fills room the header already has. The text is drawn from the attribute that names it. */
+.desktop-editor .code-edge-label {
+  --code-edge-label: 14px;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: var(--code-edge-label);
+  padding: 0 var(--code-collar);
+  border-radius: 5px;
+  color: var(--color-muted, #737373);
+  font: 400 10px / var(--code-edge-label) var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.desktop-editor .code-edge-label::after {
+  content: attr(aria-label);
+}
+
+.desktop-editor .code-edge-label.shown {
+  opacity: 1;
+}
+
+.desktop-editor .code-header .code-edge-label,
+.desktop-editor .code-edge-below {
+  display: none;
+}
+
+/* "Below" is pinned to the skirt's top, lifted 2px, as in !300. */
+.desktop-editor .code-edge-below {
+  position: absolute;
+  top: calc(100% - var(--code-skirt));
+  right: 0;
+  left: 0;
+  height: calc(var(--code-skirt) + var(--code-block-gap));
+  justify-content: center;
+  align-items: flex-start;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: text;
+}
+
+.desktop-editor .code-edge-below .code-edge-label {
+  --code-edge-label: var(--code-skirt);
+  margin-top: -2px;
+}
+
+/* Only where no ordinary line reaches the edge: "above" on a block that opens the note or sits
+ * right under another, "below" on one that ends the note or sits right over another. Not in a
+ * read-only note. */
+.desktop-editor[contenteditable='true']
+  > .chunk:first-child
+  > .code-line.first:first-child
+  .code-header
+  .code-edge-label,
+.desktop-editor[contenteditable='true'] .code-line.under-block .code-header .code-edge-label {
+  display: block;
+}
+
+.desktop-editor[contenteditable='true']
+  > .chunk:last-child
+  > .code-line.last:last-child
+  > .code-edge-below,
+.desktop-editor[contenteditable='true'] .code-line.over-block > .code-edge-below {
+  display: flex;
+}
+
+.desktop-editor > .chunk:last-child > .code-line.last:last-child > .code-edge-below {
+  height: calc(var(--code-skirt) + 2 * var(--line));
+}

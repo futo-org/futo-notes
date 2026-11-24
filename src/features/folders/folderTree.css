@@ -93,7 +93,6 @@
 }
 .note-row.selected .note-title {
   color: var(--color-primary-hover);
-  font-weight: 600;
 }
 .note-row.selected:active {
   background: rgba(var(--primary-rgb), 0.18);

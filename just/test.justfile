@@ -9,6 +9,7 @@ build: check-node-version _require-node-modules
 
 # Every vitest test (app, editor package, scripts); pass files, folders or -t <name> to run only those.
 test-unit *args: editor-deps
+  node scripts/build-editor-wasm.mjs
   node_modules/.bin/vitest run "$@"
 
 # Run the quick P0 crash/IME Playwright spec (CI runs it inside test:e2e:rest).
@@ -53,6 +54,10 @@ test-rust:
 # Run a selected Cargo test target/filter; complete owner gates remain test-rust/test-rust-full.
 test-rust-focused +args:
   cargo test "$@"
+
+# The desktop editor's stories: real input via `just puppet` into this worktree's running `just tauri-dev`.
+test-desktop-editor-stories *filter:
+  node tests/desktop-editor-stories.mjs {{filter}}
 
 # Compile and execute the portable WASM editor against a real background Rust store.
 test-editor-wasm:
@@ -127,7 +132,7 @@ remote-sync *flags:
   node scripts/remote-test.mjs "$@" test-cross-platform
 
 # The normal pre-merge umbrella, scoped to what your branch changed vs origin/main (plan printed first).
-# Scope rules: scripts/check-scoped.mjs. `--plan` prints the plan without running it.
+# Scope rules: scripts/check-scoped/plan-check.mjs. `--plan` prints the plan without running it.
 check *flags: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check lint-swift
   node scripts/check-scoped.mjs "$@"
 

@@ -18,7 +18,7 @@ were found by reading code and guessing.
 futo-puppet  ──▶  per-shell debug listener  ──▶  the real app on a real device
    │                (desktop / iOS / Android)
    ├─ act      do <Verb> <json> · a JSON array of steps is a batch
-   ├─ input    click · tap · drag · scroll · type · press — real platform input
+   ├─ input    click · tap · drag · scroll · hover · type · press — real platform input
    └─ read     look · actions · elements · state · notes · search · file · doc · at · show · events · diff · screenshot
 ```
 

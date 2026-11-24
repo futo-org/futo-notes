@@ -357,8 +357,8 @@
     color: var(--plate-ink-dim);
   }
 
-  /* D10: no new font file. The mock's Barlow Condensed becomes the bundled
-     Barlow 700, uppercased with tracking. */
+  /* D10: no new font file. The mock's Barlow Condensed becomes the app's
+     own face at 700, uppercased with tracking. */
   .license-name {
     margin-top: 2px;
     font-size: 24px;

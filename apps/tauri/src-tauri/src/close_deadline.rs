@@ -26,18 +26,23 @@
 //! - a new page load, which throws the old page's report away (`mark_clean`);
 //! - `DIRTY_CAP`: no stall that is still an edit being saved lasts this long, and a
 //!   page that has been silent for a minute with the user pressing close is hung, not
-//!   slow. The cap can cost the unsaved edit of a stall longer than a minute (a paste
-//!   of ~5 MB into a WebKitGTK page takes ~80 s); that is the price of a window that
-//!   can always be closed, and it logs one line when it fires.
+//!   slow. The cap can cost an edit still inside a page stalled longer than a minute
+//!   (a paste of ~5 MB into a WebKitGTK page takes ~80 s); that is the price of a
+//!   window that can always be closed, and it logs one line when it fires. Edits the
+//!   page already handed to the host are still saved by the exit below.
 //!
 //! `CLOSE_DEADLINE` is the JS handler's own 3 s flush race plus a 2 s margin
 //! for the exit IPC, so a responsive page with nothing dirty never reaches it.
 //!
-//! The exit first takes the process-wide vault mutation guard, which every store
-//! mutation, image paste and sync write to the vault holds for its whole
-//! check-and-write span. An in-flight write therefore finishes before the process
-//! goes; a write that is stuck for `WRITE_GRACE` is abandoned (writes are atomic
-//! tmp-and-rename, so a killed write leaves the old file, never a partial one).
+//! The exit first runs the final save (`EditorHostState::close_all`: the attached
+//! note's edits that reached the host), then takes the process-wide vault mutation
+//! guard, which every store mutation, image paste and sync write to the vault holds
+//! for its whole check-and-write span. An in-flight write therefore finishes before
+//! the process goes; a save or write that is stuck for `WRITE_GRACE` is abandoned
+//! (writes are atomic tmp-and-rename, so a killed write leaves the old file, never a
+//! partial one). The save comes first because it needs the guard too: held across
+//! the exit, the guard kept `RunEvent::Exit`'s own `close_all` waiting until the
+//! fallback ended the process. That second `close_all` finds nothing attached.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -88,8 +93,9 @@ impl CloseDeadline {
 
     /// Starts the deadline on the first close request; later requests are
     /// ignored so the clock is never pushed out. Returns whether it armed.
-    fn arm<F>(&'static self, timing: Timing, exit: F) -> bool
+    fn arm<S, F>(&'static self, timing: Timing, final_save: S, exit: F) -> bool
     where
+        S: FnOnce() + Send + 'static,
         F: FnOnce() + Send + 'static,
     {
         if self.armed.swap(true, Ordering::SeqCst) {
@@ -112,7 +118,7 @@ impl CloseDeadline {
                     }
                     std::thread::sleep(DIRTY_POLL);
                 }
-                exit_after_in_flight_writes(timing.write_grace, exit);
+                exit_after_in_flight_writes(timing.write_grace, final_save, exit);
             });
         if spawned.is_err() {
             // No thread, no backstop: let a later request try again.
@@ -123,15 +129,21 @@ impl CloseDeadline {
     }
 }
 
-fn exit_after_in_flight_writes<F: FnOnce()>(write_grace: Duration, exit: F) {
+fn exit_after_in_flight_writes<S, F>(write_grace: Duration, final_save: S, exit: F)
+where
+    S: FnOnce() + Send + 'static,
+    F: FnOnce(),
+{
     let (locked_tx, locked_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel::<()>();
-    // The guard is taken on its own thread so a stuck writer cannot stall the
-    // grace timeout, and it is held until `exit` returns so no new mutation can
+    // The final save and the guard run on their own thread so a stuck writer
+    // cannot stall the grace timeout. The save needs the guard, so it runs
+    // first; the guard is then held until `exit` returns so no new mutation can
     // start between the wait and the exit.
     let holder = std::thread::Builder::new()
         .name("close-deadline-writes".to_owned())
         .spawn(move || {
+            final_save();
             let guard = vault_mutation_guard();
             let _ = locked_tx.send(());
             let _ = release_rx.recv();
@@ -188,12 +200,17 @@ pub(crate) fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         return;
     }
     let app = window.app_handle().clone();
+    let editor = app
+        .state::<crate::application_state::AppState>()
+        .editor
+        .clone();
     CLOSE_DEADLINE_STATE.arm(
         Timing {
             deadline: CLOSE_DEADLINE,
             dirty_cap: DIRTY_CAP,
             write_grace: WRITE_GRACE,
         },
+        move || editor.close_all(),
         move || {
             app.exit(0);
             std::thread::sleep(EXIT_FALLBACK);
@@ -252,12 +269,34 @@ mod tests {
         );
     }
 
+    /// The final save (`close_all`) is the last write and needs the vault guard, so
+    /// it runs before the exit takes that guard: with the guard held across the exit,
+    /// `RunEvent::Exit`'s save waited on it until the fallback ended the process.
+    #[test]
+    fn the_final_save_runs_before_the_exit() {
+        let state = state();
+        let (exit, exited) = exit_signal();
+        let (saved_tx, saved) = mpsc::channel();
+        let final_save = move || {
+            let _write = vault_mutation_guard().expect("vault lock");
+            let _ = saved_tx.send(Instant::now());
+        };
+        assert!(state.arm(timing(20, 1000), final_save, exit));
+        let saved_at = saved
+            .recv_timeout(Duration::from_secs(3))
+            .expect("the final save ran");
+        let exited_at = exited
+            .recv_timeout(Duration::from_secs(5))
+            .expect("exit ran");
+        assert!(saved_at <= exited_at);
+    }
+
     #[test]
     fn exits_once_the_deadline_passes() {
         let state = state();
         let (exit, exited) = exit_signal();
         let started = Instant::now();
-        assert!(state.arm(timing(150, 1000), exit));
+        assert!(state.arm(timing(150, 1000), || {}, exit));
         let at = exited
             .recv_timeout(Duration::from_secs(5))
             .expect("exit ran");
@@ -268,9 +307,9 @@ mod tests {
     fn a_second_close_request_does_not_restart_the_clock() {
         let state = state();
         let (exit, exited) = exit_signal();
-        assert!(state.arm(timing(100, 1000), exit));
+        assert!(state.arm(timing(100, 1000), || {}, exit));
         let (second, second_exited) = exit_signal();
-        assert!(!state.arm(timing(100, 1000), second));
+        assert!(!state.arm(timing(100, 1000), || {}, second));
         exited
             .recv_timeout(Duration::from_secs(5))
             .expect("first exit ran");
@@ -284,7 +323,7 @@ mod tests {
         let state = state();
         let (exit, exited) = exit_signal();
         let write = vault_mutation_guard().expect("vault lock");
-        assert!(state.arm(timing(20, 5000), exit));
+        assert!(state.arm(timing(20, 5000), || {}, exit));
         // The deadline has long passed, but a write is mid-flight.
         assert!(exited.recv_timeout(Duration::from_millis(500)).is_err());
         let released = Instant::now();
@@ -300,7 +339,7 @@ mod tests {
         let state = state();
         let (exit, exited) = exit_signal();
         state.set_dirty(true);
-        assert!(state.arm(timing(20, 1000), exit));
+        assert!(state.arm(timing(20, 1000), || {}, exit));
         // Well past the deadline, but the page still holds an edit.
         assert!(exited.recv_timeout(Duration::from_millis(600)).is_err());
         state.set_dirty(false);
@@ -313,7 +352,7 @@ mod tests {
     fn a_page_that_turns_dirty_before_the_deadline_is_waited_for() {
         let state = state();
         let (exit, exited) = exit_signal();
-        assert!(state.arm(timing(300, 1000), exit));
+        assert!(state.arm(timing(300, 1000), || {}, exit));
         state.set_dirty(true);
         assert!(exited.recv_timeout(Duration::from_millis(900)).is_err());
         state.set_dirty(false);
@@ -332,7 +371,7 @@ mod tests {
             dirty_cap: Duration::from_millis(400),
             ..timing(20, 1000)
         };
-        assert!(state.arm(capped, exit));
+        assert!(state.arm(capped, || {}, exit));
         let at = exited
             .recv_timeout(Duration::from_secs(5))
             .expect("exit ran at the cap");
@@ -353,7 +392,9 @@ mod tests {
         let (exit, exited) = exit_signal();
         let _stuck = vault_mutation_guard().expect("vault lock");
         let started = Instant::now();
-        assert!(state.arm(timing(20, 300), exit));
+        // The final save waits on the same stuck write, and is abandoned with it.
+        let final_save = || drop(vault_mutation_guard());
+        assert!(state.arm(timing(20, 300), final_save, exit));
         let at = exited
             .recv_timeout(Duration::from_secs(5))
             .expect("exit ran");

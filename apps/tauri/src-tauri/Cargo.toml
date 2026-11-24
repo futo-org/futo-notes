@@ -89,8 +89,9 @@ keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSGraphicsContext", "NSResponder", "NSView", "NSWindow", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventTypes"] }
-# NSProcessInfo + NSString also opt debug builds out of App Nap (platform_integration.rs).
-objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSProcessInfo", "NSString"] }
+# NSProcessInfo + NSString also opt debug builds out of App Nap, and NSUserDefaults
+# switches off the quote key (platform_integration.rs).
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSProcessInfo", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

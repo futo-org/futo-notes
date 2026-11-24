@@ -23,6 +23,7 @@ mod license;
 mod local_notes;
 #[cfg(target_os = "macos")]
 mod macos_terminate;
+mod open_url_behind;
 mod panic_reporter;
 mod platform_integration;
 mod portal_vault;
@@ -32,6 +33,8 @@ mod puppet_notes_dir;
 mod puppet_screenshot;
 mod sync;
 mod system_trash;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod terminate;
 mod updater_commands;
 mod vault_location;
 mod window_controls;

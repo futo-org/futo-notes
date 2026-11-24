@@ -12,10 +12,8 @@
  *
  * A user who then clears the note lands on exactly that document. The plugin
  * compares it to its stale baseline, calls it unchanged, and the deletion is
- * never reported: no `change` message, no save scheduled, and — since
- * `noteSessionChanges.editorLostTheNote` reads an unannounced empty editor as a
- * blank editor rather than a deletion — nothing writes it at close either. The
- * user's note comes back the next time they open it.
+ * never reported: no `change` message, no save scheduled. The user's note
+ * comes back the next time they open it.
  * → docs/spec/editor.md "Saving & rename"
  *
  * So the component watches transactions itself and serializes the LIVE document

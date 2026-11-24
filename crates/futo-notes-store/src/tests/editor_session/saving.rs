@@ -318,40 +318,6 @@ fn an_outside_write_while_dirty_parks_a_conflict_copy_and_leaves_the_disk_versio
 }
 
 #[test]
-fn rename_while_dirty_keeps_the_draft_and_saves_under_the_new_id() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "old", "base").unwrap();
-    let mut editor = store.open_editor("old").unwrap();
-    editor.replace(Revision(0), range(4, 4), "!").unwrap();
-    store.rename("old", "new").unwrap();
-    assert_eq!(editor.id(), "new");
-    assert_eq!(editor.source_text(), "base!");
-    assert_eq!(store.read("new").unwrap(), "base");
-    editor.checkpoint().unwrap();
-    assert_eq!(store.read("new").unwrap(), "base!");
-    assert_eq!(store.read_existing("old").unwrap(), None);
-}
-
-#[test]
-fn rename_while_clean_adopts_the_rewritten_links_as_one_undo_step() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "old", "[[old]] tail").unwrap();
-    let mut editor = store.open_editor("old").unwrap();
-    store.rename("old", "long name").unwrap();
-    assert_eq!(editor.id(), "long name");
-    assert_eq!(editor.source_text(), "[[long name]] tail");
-    assert_eq!(editor.take_coordinated_changes().unwrap().len(), 1);
-    // Adopting the rewrite left the draft equal to the file: nothing to save.
-    assert!(editor.save_delay().is_none());
-    assert_eq!(editor.checkpoint().unwrap().mutation, None);
-    editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "[[old]] tail");
-    assert!(editor.undo(editor.revision()).unwrap().is_none());
-}
-
-#[test]
 fn a_note_is_saved_exactly_as_typed() {
     // Decision 17B: the file holds what was typed, no final line ending added.
     let root = TestRoot::new();
@@ -374,9 +340,9 @@ fn a_note_is_saved_exactly_as_typed() {
     drop(editor);
     assert_eq!(store.open_editor("plain").unwrap().source_text(), "x");
     // The same through a host with its own baseline, and both ways.
-    store.flush_draft_unattached("plain", "x", "x\n").unwrap();
+    store.flush_draft("plain", "x", "x\n").unwrap();
     assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x\n");
-    store.flush_draft_unattached("plain", "x\n", "x").unwrap();
+    store.flush_draft("plain", "x\n", "x").unwrap();
     assert_eq!(fs::read_to_string(root.0.join("plain.md")).unwrap(), "x");
 
     // A line break typed at the end of a note with no final line ending.
@@ -400,6 +366,9 @@ fn deleting_an_attached_note_ends_the_session() {
     editor.replace(Revision(0), range(4, 4), "!").unwrap();
     let removed = store.delete("plain").unwrap();
     assert_eq!(removed.removed, ["plain"]);
+    // Nothing is left to save: a host that waits on this never wakes to fail.
+    assert_eq!(editor.save_delay(), None);
+    assert_eq!(editor.save_status().save_deadline, None);
     assert_eq!(
         editor.replace(Revision(1), range(5, 5), "?"),
         Err(EditorStoreError::SessionDeleted)

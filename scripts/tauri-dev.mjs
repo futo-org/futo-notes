@@ -72,10 +72,17 @@ if (existsSync(cargoOutputDir)) {
   }
 }
 
-const WAYLAND_ENV = {
-  WINIT_UNIX_BACKEND: 'wayland',
-  GDK_BACKEND: 'wayland',
-};
+// Linux runs under XWayland by default. WebKitGTK here is GTK3, which on Wayland only
+// renders at whole-number scales: at a fractional display scale (1.6x) it draws at 2x and
+// the compositor shrinks the window, softening every glyph edge. Under XWayland (KDE with
+// "apply scaling themselves") it draws at the true scale. FUTO_DEV_WAYLAND=1 runs native
+// Wayland instead.
+const DISPLAY_BACKEND_ENV =
+  process.platform !== 'linux'
+    ? {}
+    : process.env.FUTO_DEV_WAYLAND === '1'
+      ? { WINIT_UNIX_BACKEND: 'wayland', GDK_BACKEND: 'wayland' }
+      : { WINIT_UNIX_BACKEND: 'x11', GDK_BACKEND: 'x11' };
 
 // Dev fake-update flag: `just tauri-dev --fake-update[=X.Y.Z]` (or FUTO_FAKE_UPDATE)
 // makes the app show a synthetic "update available" so the banner + Settings can
@@ -93,6 +100,9 @@ if (fakeUpdate)
   console.log(
     `[tauri-dev] FAKE UPDATE on → app will show an update available (v${fakeUpdate}); install is simulated`,
   );
+
+// The desktop editor's engine (src/features/editor/desktop/wasm/); Cargo makes a rebuild cheap.
+execSync('node scripts/build-editor-wasm.mjs', { cwd: repoRoot, stdio: 'inherit' });
 
 (async () => {
   if (!isWorktree) {
@@ -129,7 +139,7 @@ if (fakeUpdate)
       cwd: join(repoRoot, 'apps/tauri'),
       env: {
         ...process.env,
-        ...WAYLAND_ENV,
+        ...DISPLAY_BACKEND_ENV,
         ...FAKE_ENV,
         ...BRANCH_ENV,
         FUTO_NOTES_DATA_DIR: dataDir,
@@ -196,7 +206,7 @@ if (fakeUpdate)
         cwd: join(repoRoot, 'apps/tauri'),
         env: {
           ...process.env,
-          ...WAYLAND_ENV,
+          ...DISPLAY_BACKEND_ENV,
           ...FAKE_ENV,
           ...BRANCH_ENV,
           FUTO_NOTES_DATA_DIR: dataDir,

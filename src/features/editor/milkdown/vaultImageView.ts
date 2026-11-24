@@ -92,7 +92,7 @@ export class VaultImageNodeView implements NodeView {
        * the answer lands (`requestVaultImageUrl` registers it, which notifies).
        * It is a no-op on the native shells, where the base URL already answers.
        */
-      requestVaultImageUrl(source);
+      void requestVaultImageUrl(source);
       /* An unset src renders as nothing; the raw vault filename would render a
        * broken-image glyph and then get replaced once the URL arrives. */
       if (this.dom.hasAttribute('src')) this.dom.removeAttribute('src');

@@ -33,7 +33,6 @@
     onnoteidsrenamed: (renames: Array<{ from: string; to: string }>) => void;
     onnoteidsdeleted: (ids: string[]) => void;
     onactivenotedeleted: () => void;
-    onactivenotemoved: (fromId: string, toId: string, title: string) => void;
     onnewnote: () => void;
     onnewnoteinfolder: (folder: string) => void;
     onhome: () => void;
@@ -57,7 +56,6 @@
     onnoteidsrenamed,
     onnoteidsdeleted,
     onactivenotedeleted,
-    onactivenotemoved,
     onnewnote,
     onnewnoteinfolder,
     onhome,
@@ -76,7 +74,6 @@
     onNoteIdsDeleted: (ids) => onnoteidsdeleted(ids),
     onSelect: (id) => onselectnote(id),
     onActiveNoteDeleted: () => onactivenotedeleted(),
-    onActiveNoteMoved: (fromId, toId, title) => onactivenotemoved(fromId, toId, title),
     onNewNoteInFolder: (folder) => onnewnoteinfolder(folder),
   });
 

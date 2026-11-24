@@ -4,15 +4,12 @@ import {
   controlledPromise,
   emptySummary,
   makeManager,
-  makeLiveNoteSession,
-  managerFor,
   makeSession,
   openNoteMocks,
   resetSyncManagerHarness,
   yieldMicrotasks,
 } from './__test__/syncManagerHarness';
 import { updateAppState } from '$shared/state/appState';
-import { refreshNotesAfterSync, updateNote } from '$features/notes/notes.svelte';
 
 beforeEach(resetSyncManagerHarness);
 
@@ -61,108 +58,102 @@ describe('sync outcome source clearing', () => {
 });
 
 describe('peer projections', () => {
-  it('follows a reported rename before a pending save persists', async () => {
-    // Flushing first addressed the save to the id the note just left, and the
-    // store recreated the note there: a ghost that synced to every device. The
-    // pending save is settled only once the editor is bound to the new id.
-    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
-      kind: 'followRename',
-      toId: 'New',
-    });
-    const sessionBundle = makeSession({
-      id: 'Old',
-      content: 'draft',
-      savedContent: 'base',
-      savePending: true,
-    });
+  it('brings the session to where the store moved the open note before classifying it', async () => {
+    // The pull moved the editor's attachment with the note; following only the
+    // summary afterwards let a save land at the id the note left, and the store
+    // recreated it there: a ghost that synced to every device.
+    const sessionBundle = makeSession({ id: 'Old', content: 'draft', relocatedTo: 'New' });
     const bundle = makeManager(sessionBundle);
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['New'],
+      renamed: [{ fromId: 'Old', toId: 'New' }],
+    });
+
+    expect(sessionBundle.checkpointEditor).toHaveBeenCalledOnce();
+    expect(bundle.state.id).toBe('New');
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'New', renamedTo: null }),
+    );
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New');
+  });
+
+  // A first sync's ancestry relocation reports only the source's delete.
+  it('follows a relocation reported only as its source deleted, never closing the note', async () => {
+    const sessionBundle = makeSession({ id: 'Old', content: 'draft', relocatedTo: 'New' });
+    const bundle = makeManager(sessionBundle);
+
+    await bundle.manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['New'],
+      deletedIds: ['Old'],
+      peerDeletedIds: ['Old'],
+    });
+
+    expect(bundle.state.id).toBe('New');
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'New' }),
+    );
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
+  });
+
+  it('never moves a session the store did not move', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'followRename', toId: 'New' });
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'draft' }));
 
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
 
-    expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
-    const flushSave = vi.mocked(sessionBundle.session.flushSave);
-    expect(flushSave).toHaveBeenCalledOnce();
-    expect(bundle.applyRemoteRename.mock.invocationCallOrder[0]).toBeLessThan(
-      flushSave.mock.invocationCallOrder[0],
-    );
-  });
-
-  it('does not rebind a remote rename after the session switches notes', async () => {
-    const verdict = controlledPromise<{ kind: 'followRename'; toId: string }>();
-    openNoteMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
-    const sessionBundle = makeSession({ id: 'Old', content: 'draft', savePending: true });
-    const bundle = makeManager(sessionBundle);
-
-    const reconciliation = bundle.manager.handleSyncComplete({
-      ...emptySummary,
-      renamed: [{ fromId: 'Old', toId: 'New' }],
-    });
-    await vi.waitFor(() => expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledOnce());
-    sessionBundle.state.id = 'Other';
-    verdict.resolve({ kind: 'followRename', toId: 'New' });
-    await reconciliation;
-
-    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
+    expect(bundle.state.id).toBe('Old');
+    expect(bundle.cancelAndClear).not.toHaveBeenCalled();
   });
 
   // Same-cycle collision placement + tombstone of the relocated note: the
   // engine reports both the rename and the deletion of its target (guarded by
   // same_cycle_tombstone_of_a_collision_relocated_note_survives_ghost_stripping
-  // in futo-notes-sync). The tab follows the rename, then the deleted-during-
-  // sync flow closes it instead of leaving the editor bound to a nonexistent
-  // note whose next save would resurrect the tombstoned object.
-  it('closes the open note when a followed rename target was tombstoned in the same cycle', async () => {
-    openNoteMocks.classifyOpenNote
-      .mockResolvedValueOnce({
-        kind: 'followRename',
-        toId: 'Old (conflict deadbeef)',
-      })
-      .mockResolvedValueOnce({ kind: 'close' });
-    const bundle = makeManager(makeSession({ id: 'Old', content: 'body' }));
+  // in futo-notes-sync). The session follows the editor to the target, then the
+  // deleted-during-sync flow closes it instead of leaving the editor bound to a
+  // nonexistent note whose next save would resurrect the tombstoned object.
+  it('closes the open note when its relocation target was tombstoned in the same cycle', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'close' });
+    const copy = 'Old (conflict deadbeef)';
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'body', relocatedTo: copy }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
       updatedIds: ['Old'],
-      deletedIds: ['Old (conflict deadbeef)'],
+      deletedIds: [copy],
       peerUpdatedIds: ['Old'],
-      peerDeletedIds: ['Old (conflict deadbeef)'],
-      renamed: [{ fromId: 'Old', toId: 'Old (conflict deadbeef)' }],
+      peerDeletedIds: [copy],
+      renamed: [{ fromId: 'Old', toId: copy }],
     });
-    expect(bundle.applyRemoteRename).toHaveBeenCalledWith(
-      'Old (conflict deadbeef)',
-      'Old (conflict deadbeef)',
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: copy }),
     );
     expect(bundle.cancelAndClear).toHaveBeenCalledOnce();
     expect(bundle.toasts).toContainEqual({ path: 'notes.deletedElsewhere' });
-    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith(['Old (conflict deadbeef)']);
+    expect(bundle.pruneTabsForDeletedIds).toHaveBeenCalledWith([copy]);
   });
 
   // Same-cycle collision placement + a real peer edit to the relocated object:
   // the engine reports the rename AND keeps the update against its target id
   // (guarded by same_cycle_update_of_a_collision_relocated_note_survives_ghost_stripping
-  // in futo-notes-sync). The tab follows the rename, then the fresh peer content
-  // is adopted — without it the editor keeps the stale relocated draft and the
-  // next save overwrites the peer edit on every client.
-  it('reloads a followed rename target that also received a real update in the same cycle', async () => {
-    openNoteMocks.classifyOpenNote
-      .mockResolvedValueOnce({
-        kind: 'followRename',
-        toId: 'Old (conflict deadbeef)',
-      })
-      .mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' });
-    const bundle = makeManager(makeSession({ id: 'Old', content: 'stale' }));
+  // in futo-notes-sync). The session follows, then the fresh peer content is
+  // adopted — without it the editor keeps the stale relocated draft and the next
+  // save overwrites the peer edit on every client.
+  it('reloads a relocation target that also received a real update in the same cycle', async () => {
+    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'adopt', content: 'FRESH' });
+    const copy = 'Old (conflict deadbeef)';
+    const bundle = makeManager(makeSession({ id: 'Old', content: 'stale', relocatedTo: copy }));
     await bundle.manager.handleSyncComplete({
       ...emptySummary,
-      updatedIds: ['Old (conflict deadbeef)'],
-      peerUpdatedIds: ['Old (conflict deadbeef)'],
-      renamed: [{ fromId: 'Old', toId: 'Old (conflict deadbeef)' }],
+      updatedIds: [copy],
+      peerUpdatedIds: [copy],
+      renamed: [{ fromId: 'Old', toId: copy }],
     });
-    expect(bundle.applyRemoteRename).toHaveBeenCalledWith(
-      'Old (conflict deadbeef)',
-      'Old (conflict deadbeef)',
-    );
+    expect(bundle.state.id).toBe(copy);
     expect(bundle.applyExternalContent).toHaveBeenCalledWith('FRESH');
   });
 });
@@ -182,11 +173,11 @@ describe('rename disposition races', () => {
       ],
     });
 
-    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledTimes(2);
+    expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledOnce();
     expect(bundle.state.id).toBe('Old');
   });
 
-  it('retargets a renamed tab without rebinding a session that switched during classification', async () => {
+  it('renames the tabs of a note the session left during classification', async () => {
     const verdict = controlledPromise<{
       kind: 'followRename';
       toId: string;
@@ -203,46 +194,7 @@ describe('rename disposition races', () => {
     verdict.resolve({ kind: 'followRename', toId: 'New' });
     await reconciliation;
 
-    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
-    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New', 'New');
+    expect(bundle.state.id).toBe('Other');
+    expect(bundle.onRename).toHaveBeenCalledExactlyOnceWith('Old', 'New');
   });
-});
-
-describe('pending saves during a reported rename', () => {
-  it.each(['list refresh', 'rename classification'])(
-    'does not recreate the old name while awaiting %s',
-    async (phase) => {
-      vi.useFakeTimers();
-      const disk = new Map([['New', 'base']]);
-      vi.mocked(updateNote).mockImplementation(async (id, content) => {
-        disk.set(id, content);
-        return { id, mtime: 0, disposition: 'wrote' };
-      });
-      const gate = controlledPromise<void>();
-      vi.mocked(refreshNotesAfterSync).mockReturnValueOnce(
-        phase === 'list refresh' ? gate.promise : Promise.resolve(),
-      );
-      openNoteMocks.classifyOpenNote.mockImplementationOnce(async () => {
-        if (phase === 'rename classification') await gate.promise;
-        return { kind: 'followRename', toId: 'New' };
-      });
-      const live = makeLiveNoteSession('Old', 'base');
-      const manager = managerFor(live.session);
-      live.editContent('base typed');
-      const completion = manager.handleSyncComplete({
-        ...emptySummary,
-        renamed: [{ fromId: 'Old', toId: 'New' }],
-      });
-      await vi.advanceTimersByTimeAsync(600);
-      const recreatedOldName = disk.has('Old');
-      gate.resolve();
-      await completion;
-      await live.session.flushSave();
-      live.session.cancelAndClear();
-
-      expect(recreatedOldName).toBe(false);
-      expect(disk.has('Old')).toBe(false);
-      expect(disk.get('New')).toBe('base typed');
-    },
-  );
 });

@@ -27,8 +27,9 @@ type VaultImageUrlResolver = (filename: string) => Promise<string>;
 
 let urlResolver: VaultImageUrlResolver | null = null;
 
-/** Filenames the resolver is working on, so N renders cost one round trip. */
-const inFlight = new Set<string>();
+/** Filenames the resolver is working on, each with its answer, so N renders cost one round
+ *  trip. */
+const inFlight = new Map<string, Promise<boolean>>();
 
 /**
  * Live renderers that must re-resolve when the mapping changes. A ProseMirror
@@ -103,22 +104,26 @@ export function setVaultImageUrlResolver(resolve: VaultImageUrlResolver | null):
 /**
  * Ask the host to resolve a filename nothing has registered yet, registering
  * the result (which notifies, so the renderer that asked re-resolves itself).
+ * Answers whether the filename has a URL now: false when it will not resolve
+ * (no resolver here, or the file is not there), so a renderer that wants to
+ * can say so; a later request asks again.
  *
- * Fire-and-forget by design: it is called from a render path, so it must not
- * be awaited and must not throw. Called per image actually rendered rather
- * than by scanning the whole document, so a large note only pays for the
- * images someone looks at (M5).
+ * Never awaited by a render path and never throws. Called per image actually
+ * rendered rather than by scanning the whole document, so a large note only
+ * pays for the images someone looks at (M5).
  */
-export function requestVaultImageUrl(filename: string): void {
-  if (!urlResolver) return;
-  if (!filename || isRemoteImageSource(filename)) return;
-  if (vaultImageUrls.has(filename) || inFlight.has(filename)) return;
+export function requestVaultImageUrl(filename: string): Promise<boolean> {
+  if (!filename) return Promise.resolve(false);
+  if (isRemoteImageSource(filename) || vaultImageUrls.has(filename)) return Promise.resolve(true);
+  if (!urlResolver) return Promise.resolve(false);
+  const pending = inFlight.get(filename);
+  if (pending) return pending;
 
-  inFlight.add(filename);
-  void urlResolver(filename)
+  const answer = urlResolver(filename)
     .then((url) => {
       inFlight.delete(filename);
       if (url) registerVaultImageUrl(filename, url);
+      return !!url;
     })
     .catch(() => {
       /* The file may simply not have arrived yet — sync delivers an image
@@ -126,7 +131,10 @@ export function requestVaultImageUrl(filename: string): void {
        * later render can ask again, and stay quiet: a missing image is not an
        * error the user needs told about. */
       inFlight.delete(filename);
+      return false;
     });
+  inFlight.set(filename, answer);
+  return answer;
 }
 
 /** Subscribe to mapping changes. Returns the unsubscribe. */

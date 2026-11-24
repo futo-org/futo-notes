@@ -130,6 +130,16 @@ export class TauriNotesClient extends TauriBridgeClient {
     );
   }
 
+  /** Go Home: the editor saves and releases the open note. */
+  async goHome() {
+    await this._executeMutation(`window.location.hash = '#/'`, 'goHome');
+    await this.waitForCondition(
+      `window.__notesShellTest?.getState?.().originalId === null`,
+      10_000,
+      'home with no note open',
+    );
+  }
+
   async openNewNote() {
     await this._executeMutation(`window.location.hash = '#/note/new'`, 'openNewNote');
     await this.waitForRoute('/note/new');
@@ -144,8 +154,11 @@ export class TauriNotesClient extends TauriBridgeClient {
   async waitForNewNoteSession(timeoutMs = 10_000) {
     return this.waitForCondition(
       `(() => {
+      // A new note is a file from the start (Untitled, Untitled 2, …), empty and titled
+      // by its own name.
       const state = window.__notesShellTest?.getState?.();
-      return Boolean(state && state.originalId === null && /^Untitled/.test(state.title));
+      const name = state?.originalId?.split('/').pop() ?? '';
+      return Boolean(state && /^Untitled/.test(name) && state.title === name && state.editorContent === '');
     })()`,
       timeoutMs,
       'fresh new-note session',

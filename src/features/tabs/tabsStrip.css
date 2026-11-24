@@ -124,6 +124,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-right: 4px;
+  /* The pill's `line-height: 1` box is shorter than the face (ascent + descent 1.26em), and
+   * `overflow: hidden` would cut the descenders. */
+  line-height: 1.3;
 }
 
 /* Close affordance: a small rounded square that echoes the pill's own radius

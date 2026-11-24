@@ -11,6 +11,7 @@ import { collectElements, type ElementRow, type Rect } from './puppetElements';
 import { linesListing } from './puppetLines';
 import { linesOnScreen, noteLines, type NoteLines, type OnScreen } from './puppetNoteLines';
 import { puppetProviders, currentScreen } from './puppetRegistry';
+import { textEditorSnapshot, textSourceDiff } from './puppetTextSnapshots';
 
 export interface Selection {
   from: number;
@@ -25,6 +26,8 @@ export interface Snapshot {
   /** The open note: which of its lines show. Its text is the diff's. */
   doc: { onScreen: OnScreen | null } | null;
   selection: Selection | null;
+  /** The desktop editor's note source (puppetTextSnapshots.ts); its text is the diff's. */
+  source?: string | null;
 }
 
 interface ElementChange {
@@ -84,6 +87,19 @@ export function takeSnapshot(): Snapshot {
   // A verb that sets component state returns before Svelte applies it to the page: flush
   // first, or the snapshot is of the screen as it was and the receipt says nothing changed.
   flushSync();
+  if (puppetProviders.textEditor) {
+    return push(
+      snapshots,
+      {
+        id: nextSnapshotId++,
+        t: now(),
+        screen: currentScreen(),
+        elements: collectElements({}),
+        ...textEditorSnapshot(),
+      },
+      SNAPSHOT_LIMIT,
+    );
+  }
   const view = editorView();
   const note = view ? noteLines(view.state.doc) : null;
   const snapshot = push(
@@ -158,6 +174,9 @@ function shownPart(span: [number, number], onScreen: OnScreen | null): [number, 
  * own comparison skips the blocks two documents share, so the cost follows the edit.
  */
 function diffDocs(before: Snapshot, after: Snapshot): SnapshotDiff['doc'] {
+  if (before.source !== undefined || after.source !== undefined) {
+    return textSourceDiff(before, after);
+  }
   const docBefore = documentOf.get(before) ?? null;
   const docAfter = documentOf.get(after) ?? null;
   // A note on no screen (the editor kept mounted behind home) changes where nobody looks.

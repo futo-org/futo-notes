@@ -9,10 +9,13 @@
  * Design record: docs/research/agent-native-app-design.md.
  */
 import { lastOpenedUrl } from '../../lib/platform/openExternalUrl';
+import { textEditorVerbs } from './puppetTextEditor';
+import { textEditorLinesOnScreen, textEditorPositionAt } from './puppetTextEditorReads';
 
 import { collectElements, elementForRef, ownersOf, stackAt } from './puppetElements';
 import { showElement } from './puppetShowElement';
-import { clipboard, editorDoc, editorState, showText, lineView } from './puppetEditorReads';
+import { clipboard } from './puppetClipboard';
+import { editorDoc, editorState, showText, lineView } from './puppetEditorReads';
 import { editorVerbs } from './puppetEditorVerbs';
 import { offsetInLine } from './puppetLines';
 import { linesOnScreen, noteLines, shownLines } from './puppetNoteLines';
@@ -285,6 +288,10 @@ function at(args: Args): PuppetOutcome {
     owners: ownersOf(stack),
     stack,
   };
+  const textView = puppetProviders.textEditor?.view();
+  if (textView && stack.some((row) => elementForRef(row.ref) === textView.dom)) {
+    body.editor = textEditorPositionAt(textView, x, y);
+  }
   const view = puppetProviders.editor?.getView();
   if (view && stack.some((row) => row.role === 'editor')) {
     const hit = view.posAtCoords({ left: x, top: y });
@@ -367,7 +374,7 @@ function observe(): PuppetOutcome {
       ? shownLines(noteLines(view.state.doc), linesOnScreen(view)).map((entry) =>
           lineView(entry, view, editor),
         )
-      : [];
+      : textEditorLinesOnScreen();
   return ok({
     screen,
     editor: editorState(),
@@ -451,5 +458,6 @@ export function runPuppetCommandJson(command: string, argsJson: string): string 
 export function installPuppetInspector(): void {
   (window as unknown as { __futoPuppet?: unknown }).__futoPuppet = { run: runPuppetCommandJson };
   registerPuppetVerbs(editorVerbs);
+  registerPuppetVerbs(textEditorVerbs);
   registerPuppetVerbs(() => [scrollByVerb()], { windowShortcuts: true });
 }

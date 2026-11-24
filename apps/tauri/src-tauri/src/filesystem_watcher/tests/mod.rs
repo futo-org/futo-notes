@@ -18,6 +18,13 @@ impl ChangeSink for Recorder {
             .unwrap()
             .push(format!("rename {from} -> {to}"));
     }
+
+    fn recreated_move(&self, from: &str, to: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("recreated {from} -> {to}"));
+    }
 }
 
 impl Recorder {

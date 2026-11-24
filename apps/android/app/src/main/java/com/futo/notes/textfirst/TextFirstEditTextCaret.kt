@@ -64,12 +64,12 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
         val over = maxOf(0, row.first - extent.first, extent.last - row.last)
         val top = extent.first + over - padding.top
         val bottom = extent.last - over + padding.bottom
-        // Just outside the photo's edge, on the side it touches.
-        val half = (bounds.width() - padding.left - padding.right + 1) / 2
+        // Just outside the photo's edge, on the side it touches: the drawn bar (the bounds less the drawable's padding,
+        // which a platform's caret need not share evenly) touches the edge, as measured from the bar itself.
         val dx = when {
             beside == null -> 0
-            bounds.centerX() <= photo.centerX() -> photo.left - half - bounds.centerX()
-            else -> photo.right + half - bounds.centerX()
+            bounds.centerX() <= photo.centerX() -> photo.left - (bounds.right - padding.right)
+            else -> photo.right - (bounds.left + padding.left)
         }
         super.onBoundsChange(Rect(bounds.left + dx, top, bounds.right + dx, maxOf(top, bottom)))
     }

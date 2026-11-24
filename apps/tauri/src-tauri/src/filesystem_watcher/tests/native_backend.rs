@@ -126,6 +126,42 @@ fn inotify_reports_a_rename_then_a_new_note_at_the_old_name_as_a_rename() {
     }
 }
 
+/// What an open note's own save does after an outside move: the note is
+/// renamed, and the save recreates the old name before the rename is read.
+/// FSEvents and ReadDirectoryChangesW pair a rename's halves by arrival order,
+/// so the recreated old name must not hide the rename from the store, which
+/// adopts its attachment's own recreation (and changes nothing otherwise).
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn a_rename_then_the_old_name_recreated_by_a_save_still_reaches_the_store() {
+    let root = temp_vault("recreate-native");
+    let rounds = 20;
+    for round in 0..rounds {
+        std::fs::write(root.join(format!("A {round}.md")), "local").unwrap();
+    }
+    let watch = NativeWatch::start(&root);
+
+    for round in 0..rounds {
+        std::fs::rename(
+            root.join(format!("A {round}.md")),
+            root.join(format!("A {round} 2.md")),
+        )
+        .unwrap();
+        std::fs::write(root.join(format!("A {round}.md")), "local, newest").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    let (seen, raw) = watch.settle();
+    std::fs::remove_dir_all(&root).unwrap();
+
+    for round in 0..rounds {
+        let moved = format!("recreated A {round}.md -> A {round} 2.md");
+        assert!(
+            seen.contains(&moved),
+            "round {round}: the store never heard of the move; sink saw {seen:?}, backend sent {raw:?}"
+        );
+    }
+}
+
 /// vim's default save renames the note to a backup name, writes a new file
 /// at the note's path and deletes the backup, so the path is briefly
 /// missing. That is an edit of a note that never stopped existing: a

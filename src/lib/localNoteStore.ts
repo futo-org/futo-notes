@@ -70,23 +70,6 @@ export interface LocalNoteMutation {
   warnings: string[];
 }
 
-/** The single outcome of one draft flush (CONTEXT.md: flush disposition).
- * Shells render dispositions; they never decide them (ADR-0001). Mirrors
- * `futo-notes-store::FlushDisposition`. */
-export type LocalFlushDisposition =
-  | { kind: 'wrote' }
-  | { kind: 'converged' }
-  | { kind: 'recreated' }
-  | { kind: 'parkedConflict'; parkedId: string };
-
-/** What a flush committed: one disposition plus the mutation to project
- * (null when nothing changed on disk — converged, or a park that found its
- * copy already minted). */
-export interface LocalFlushDraftResult {
-  disposition: LocalFlushDisposition;
-  mutation: LocalNoteMutation | null;
-}
-
 export interface LocalNoteBootstrap {
   snapshot: LocalNoteSnapshot;
   seeded: number;
@@ -121,14 +104,7 @@ export interface LocalNoteStore {
     wantedId: string,
     content: string,
     modifiedMs?: number,
-    base?: string,
   ): Promise<LocalNoteMutation>;
-  /** THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
-   * `content` for the note at `id` against `base` (the content the editor
-   * last loaded or saved) and return one flush disposition — wrote /
-   * converged / recreated / parked as a conflict copy — plus the mutation to
-   * apply. The engine resolves every surprise itself on all three shells. */
-  flushDraft(id: string, base: string, content: string): Promise<LocalFlushDraftResult>;
   move(id: string, wantedId: string): Promise<LocalNoteMutation>;
   delete(id: string): Promise<LocalNoteMutation>;
   createFolder(path: string): Promise<LocalNoteMutation>;

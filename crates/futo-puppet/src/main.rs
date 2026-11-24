@@ -109,14 +109,15 @@ const USAGE: &str = "usage:
   futo-puppet search '{\"query\":\"…\"[,\"limit\":N]}'    the app's own search, best match first (default 10)
   futo-puppet file '{\"noteId\":\"…\"[,\"save\":false][,\"lines\":\"40-60\"][,\"find\":\"…\"][,\"around\":N]}'   the note's markdown on disk, every line unless narrowed. It saves the open note's pending edits first (409 if the note asked for has edits that cannot save); \"save\":false reads the disk as it is, saving nothing, so any edits not saved yet are not in it. Its numbers are the file's lines, not doc's
   futo-puppet elements|state|doc|at|show|events|diff ['<json args>']   doc: the note's lines on screen; show {\"text\"}: where that text shows
-  futo-puppet click '{\"x\":N,\"y\":N[,\"hold\":seconds][,\"button\":\"right\"][,\"count\":2]}'   (desktop)
+  futo-puppet click '{\"x\":N,\"y\":N[,\"hold\":seconds][,\"button\":\"right\"][,\"count\":2][,\"shift\":true]}'   (desktop)
   futo-puppet tap '{\"x\":N,\"y\":N[,\"hold\":seconds]}'        (ios, android)
-  futo-puppet drag '{\"x\":N,\"y\":N,\"x2\":N,\"y2\":N[,\"duration\":seconds]}'   on a phone, a swipe
+  futo-puppet drag '{\"x\":N,\"y\":N,\"x2\":N,\"y2\":N[,\"duration\":seconds][,\"path\":[[x,y],…]]}'   on a phone, a swipe; desktop: path, the points it passes through; count 2, a double-click drag; shift
   futo-puppet scroll '{\"x\":N,\"y\":N,\"dy\":N[,\"dx\":N]}'   (desktop) mouse wheel over the point, CSS px; dy > 0 scrolls down
+  futo-puppet hover '{\"x\":N,\"y\":N}'   (desktop) the mouse moved over the point, no button held: what shows on hover
   futo-puppet type '{\"text\":\"…\"[,\"delay\":ms]}'   real key presses into whatever has focus: click or tap the field first; on a phone, delay paces them like a person
   futo-puppet press '{\"key\":\"Enter\"}'   a key, \"count\":N times: Enter, Backspace, Tab, Escape, arrows (desktop: any chord, e.g. Mod-b); Back is Android's system Back
   Any gesture takes {\"ref\":\"e12\"} instead of x,y: the centre of that element from elements;
-  tap, click and drag take {\"text\":\"…\"}: the middle of that text on screen (a drag, across it).
+  tap, click, hover and drag take {\"text\":\"…\"}: the middle of that text on screen (a drag, across it).
   Text off screen is reached with ScrollToLine, as a scroll wheel would; Find stays its own verbs.
   On a phone x,y are screen points (iOS) or dp (Android) everywhere, the editor included;
   `elements` lists the whole screen: native rows as n-refs, the editor page's as e-refs.
@@ -145,7 +146,7 @@ const QUERIES: [&str; 13] = [
     "clipboard",
 ];
 
-const GESTURES: [&str; 6] = ["click", "tap", "drag", "scroll", "type", "press"];
+const GESTURES: [&str; 7] = ["click", "tap", "drag", "scroll", "hover", "type", "press"];
 
 struct Reply {
     status: u16,

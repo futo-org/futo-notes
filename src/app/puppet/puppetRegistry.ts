@@ -83,6 +83,16 @@ export interface PuppetEditorProvider {
   insertImage?(path: string): Promise<void>;
 }
 
+/** What the desktop editor (features/editor/desktop) lends: its view and the note it holds. */
+export interface PuppetTextEditorProvider {
+  view(): import('$features/editor/desktop/view').EditorView | null;
+  note(): string | null;
+  /** The note's source, as the engine holds it. */
+  source(): string | null;
+  /** Every edit acknowledged by the host and written. */
+  idle(): boolean;
+}
+
 /** What the surrounding shell lends: which screen this is and its domain state. */
 interface PuppetShellProvider {
   screen(): string;
@@ -114,8 +124,9 @@ interface PuppetShellProvider {
 
 export const puppetProviders: {
   editor: PuppetEditorProvider | null;
+  textEditor: PuppetTextEditorProvider | null;
   shell: PuppetShellProvider | null;
-} = { editor: null, shell: null };
+} = { editor: null, textEditor: null, shell: null };
 
 type VerbProvider = () => PuppetVerb[];
 
@@ -134,16 +145,17 @@ const openModals: object[] = [];
 /** The shell names its screen; an embedded editor with no shell is just `editor`. */
 export function currentScreen(): string {
   if (puppetProviders.shell) return puppetProviders.shell.screen();
-  return puppetProviders.editor?.getView() ? 'editor' : 'unknown';
+  return editorMounted() ? 'editor' : 'unknown';
+}
+
+function editorMounted(): boolean {
+  return Boolean(puppetProviders.editor?.getView() ?? puppetProviders.textEditor?.view());
 }
 
 /** The editor is mounted and on screen: the shell's `editor:<id>`, or the phones' shell-less `editor`. */
 export function editorOnScreen(): boolean {
   const screen = currentScreen();
-  return (
-    Boolean(puppetProviders.editor?.getView()) &&
-    (screen === 'editor' || screen.startsWith('editor:'))
-  );
+  return editorMounted() && (screen === 'editor' || screen.startsWith('editor:'));
 }
 
 export type Args = Record<string, unknown>;
@@ -302,6 +314,14 @@ export function registerPuppetEditor(provider: PuppetEditorProvider): () => void
   puppetProviders.editor = provider;
   return () => {
     if (puppetProviders.editor === provider) puppetProviders.editor = null;
+  };
+}
+
+export function registerPuppetTextEditor(provider: PuppetTextEditorProvider): () => void {
+  if (!TEST_HOOKS_ENABLED) return () => {};
+  puppetProviders.textEditor = provider;
+  return () => {
+    if (puppetProviders.textEditor === provider) puppetProviders.textEditor = null;
   };
 }
 

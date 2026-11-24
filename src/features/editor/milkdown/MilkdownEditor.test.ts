@@ -79,9 +79,7 @@ describe('an editor holding no note', () => {
  * The other half of the same contract: an empty document the user MADE is a
  * deletion, and has to reach the host as one.
  *
- * The save pipeline refuses to write `''` over a note whose emptying it never
- * heard about (`noteSessionChanges.editorLostTheNote`) — deliberately, because
- * a blank editor is indistinguishable from a cleared one at that layer. This
+ * By its text alone a blank editor is indistinguishable from a cleared one. This
  * component is where the two ARE distinguishable, so a clear that goes
  * unreported here is a deletion the user cannot make at all.
  */

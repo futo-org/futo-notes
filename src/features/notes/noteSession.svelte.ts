@@ -1,4 +1,5 @@
 import { hasFileSystem } from '$lib/platform';
+import { idLeaf } from '$lib/platform/pathSafety';
 import { notifySaved } from '$features/sync/autoSync';
 import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
@@ -6,41 +7,44 @@ import { createNotePersistence, titleSaveRefusal } from './createNotePersistence
 import { createNoteLoader } from './createNoteLoader';
 import {
   editorHasUnseenChanges,
-  fileKey,
   hasDuplicateNoteTitle,
-  isEditorChangeEcho,
   titleHasUnsavedEdit,
 } from './noteSessionChanges';
-import { readNote } from './notes.svelte';
+import { deleteNote, getNoteById, readNote, recordSaveIdentityChange } from './notes.svelte';
 import type { NoteSession, NoteSessionDeps } from './noteSessionContract';
 
-export type { NoteSession, NoteSessionDeps, ParkedDraftSnapshot } from './noteSessionContract';
+export type { NoteSession, NoteSessionDeps } from './noteSessionContract';
 
 interface NoteSessionStatePatch {
-  content?: string;
   loading?: boolean;
   originalId?: string | null;
-  savedContent?: string;
   savedTitle?: string;
   title?: string;
+  createdNoteId?: string;
 }
 
-const BODY_SAVE_DEBOUNCE_MS = 500;
-/* Typing that never pauses is still saved this often (RC-26, maintainer
- * decision 5A). The editor reports a change at least every 1.5 s of continuous
- * editing (documentChanges.ts), so a steady typist is on disk within ~2 s. */
-const BODY_SAVE_MAX_WAIT_MS = 2_000;
 const TITLE_SAVE_DEBOUNCE_MS = 10_000;
 
-// eslint-disable-next-line max-lines-per-function -- One Svelte rune factory owns the draft baseline and serialized save lifecycle.
+/*
+ * The open note as the shell shows it: its title. The editor owns the body. Its
+ * attachment says which note is open (the session follows `followEditorNote`) and what its
+ * body was last saved as (`savedContent` reads it), and its host saves the body. The
+ * session saves only the title, and counts edits for sync (`editVersion`).
+ */
+// eslint-disable-next-line max-lines-per-function -- One Svelte rune factory owns the open note's facts and its title save.
 export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   let title = $state('');
-  let content = $state('');
   let originalId: string | null = $state(null);
   let savedTitle = $state('');
   let loading = $state(false);
-  let savedContent = '';
-  let pendingNewFolder: string | null = null;
+  const savedContent = (): string => deps.getEditorSavedSource() ?? '';
+  let editVersion = 0;
+  let lastEditTime = 0;
+  /** The note this session created for New note (createNoteLoader), until it is renamed:
+   *  leaving it with an empty body deletes it, so nothing is left behind. */
+  let createdNoteId: string | null = null;
+  /** The note the newest switch handed the editor (`openLeavingUntouched`). */
+  let newestOpenedNoteId: string | null = null;
   /* The text a focused title field keeps after a commit moved `title` (see showCommittedTitle). */
   let heldFieldTitle = $state<string | null>(null);
 
@@ -48,23 +52,20 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
 
   function patchState(patch: NoteSessionStatePatch): void {
     if (patch.title !== undefined) title = patch.title;
-    if (patch.content !== undefined) content = patch.content;
-    if (patch.savedContent !== undefined) savedContent = patch.savedContent;
     if (patch.savedTitle !== undefined) savedTitle = patch.savedTitle;
     if (patch.originalId !== undefined) {
       originalId = patch.originalId;
       heldFieldTitle = null;
     }
     if (patch.loading !== undefined) loading = patch.loading;
+    if (patch.createdNoteId !== undefined) createdNoteId = patch.createdNoteId;
   }
 
   function resetSessionState(): void {
     title = '';
     heldFieldTitle = null;
-    content = '';
     originalId = null;
     savedTitle = '';
-    savedContent = '';
     loading = false;
   }
 
@@ -83,65 +84,69 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     focusEditor: deps.focusEditor,
     getTextarea: deps.getTitleTextarea,
   });
-  /* What the last save read from the editor (see `editedSinceSaveRead`). */
-  let editorReadBySave: string | undefined;
   const saveNote = createNotePersistence({
-    getEditorContent: () => (editorReadBySave = deps.getEditorContent()),
-    getNoteId: deps.getNoteId,
-    getPendingFolder: () => pendingNewFolder ?? deps.getPendingFolder?.() ?? null,
-    clearPendingFolder: () => {
-      pendingNewFolder = null;
-      deps.clearPendingFolder?.();
-    },
-    getState: () => ({ title, originalId, savedTitle, savedContent, content }),
+    getEditorNoteId: deps.getEditorNoteId,
+    getState: () => ({ title, originalId, savedTitle }),
     hasDuplicateTitle,
     isLoading: () => loading,
     showTitleWarning: (message) => titleController.showWarning(message, null),
-    reconcileOpenNote: deps.reconcileOpenNote,
-    onSaved: ({
-      id,
-      title: newTitle,
-      content: newContent,
-      savedOriginalId,
-      requestedTitle,
-      keepsOriginal,
-    }) => {
-      // A first save has no original id, so the route must still identify the
-      // new-note session; existing-note saves remain bound by original id.
-      const isCurrentSave =
-        savedOriginalId === null
-          ? deps.getNoteId() === 'new' && originalId === null
-          : savedOriginalId === originalId;
-      if (!isCurrentSave) return;
-      originalId = id;
-      if (deps.getEditorContent() === newContent) content = newContent;
-      savedContent = newContent;
-      savedTitle = newTitle;
-      if (title === requestedTitle) showCommittedTitle(newTitle);
-      if (savedOriginalId === id) return;
-      if (!keepsOriginal) {
-        deps.onNoteRenamed(savedOriginalId, id);
-        return;
-      }
-      // After a park the original still exists, so only the tab showing it
-      // moves to the copy (a null source retargets the active tab). A park
-      // inside a note switch's own flush lands after the tabs moved to the
-      // destination: the user is leaving, so no tab follows. The session above
-      // still does, so a save queued behind the park lands in the copy rather
-      // than parking a second one.
-      if (deps.getNoteId() === savedOriginalId) deps.onNoteRenamed(null, id);
+    saveBody: deps.saveEditorNote,
+    renameNote: deps.renameEditorNote,
+    onTitleSaved: (requestedTitle) => {
+      if (title === requestedTitle) showCommittedTitle(savedTitle);
     },
   });
+
+  /**
+   * The editor's attachment now holds `toId`: a rename's final id, the copy a save parked
+   * the draft in (`keepsOriginal`) — whichever save it was: the host's timer, a
+   * checkpoint, the close or this session's rename — or where a store workflow moved it
+   * (a move, a sync relocation). The session never decides the id itself; it follows
+   * here. The title is the note's name, except a title the user typed and has not saved
+   * yet: the save takes it now, renaming the note from where it went (a warning it had,
+   * a duplicate in the old folder, is stale). One the save refuses gives way, keeping
+   * its warning while the field still shows it.
+   */
+  function followEditorNote(fromId: string, toId: string, keepsOriginal: boolean): void {
+    if (fromId !== originalId) return;
+    const typedTitle = titleHasUnsavedEdit(title, savedTitle);
+    const tabShowsIt = deps.getNoteId() === fromId;
+    originalId = toId;
+    savedTitle = getNoteById(toId)?.title ?? idLeaf(toId);
+    if (typedTitle && !titleSaveRefusal(title, hasDuplicateTitle)) {
+      titleController.clearWarning();
+      saveQueue.resume();
+    } else {
+      showCommittedTitle(savedTitle);
+      if (heldFieldTitle === null) titleController.clearWarning();
+    }
+    // Renamed, moved or parked: no longer the untouched note New note created.
+    createdNoteId = null;
+    if (!keepsOriginal) {
+      recordSaveIdentityChange(fromId, toId);
+      deps.onNoteRenamed(fromId, toId);
+      return;
+    }
+    // After a park the original still exists, so only the tab showing it moves to the
+    // copy (a null source retargets the active tab). A park inside a note switch's own
+    // close lands after the tab moved to the destination: the user is leaving, so no
+    // tab follows.
+    if (tabShowsIt) deps.onNoteRenamed(null, toId);
+  }
+
+  /** A save the editor's host made wrote the note (DesktopEditor `onsaved`). */
+  function editorSaved(): void {
+    notifySaved();
+  }
+
   let persistenceTail: Promise<void> = Promise.resolve();
 
   /* Notes a local rename, move, or folder workflow relinked since the last
    * persistence step. Renaming a note the open note links to — or the open
    * note itself, when it links to itself — rewrites the open note's file
    * behind the editor (the store suppresses the watcher for its own writes).
-   * Left alone, the editor's baseline no longer describes the file and its
-   * next save parks a conflict copy for a conflict nobody made, taking the
-   * typed word with it. Every persistence step settles these first, so no
-   * save runs from the stale baseline. */
+   * Every persistence step settles these first, so the session's baseline
+   * describes the file again before anything saves or reads it. */
   const relinkedIds = new Set<string>();
 
   function noteRelinked(ids: readonly string[]): void {
@@ -164,18 +169,17 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       console.warn('Failed to read the relinked open note:', error);
       return;
     }
-    if (originalId !== id || loading || fresh === savedContent) return;
-    const editorContent = deps.getEditorContent() ?? content;
-    if (editorContent === savedContent && content === savedContent) {
+    const saved = savedContent();
+    if (originalId !== id || loading || fresh === saved) return;
+    if ((deps.getEditorContent() ?? saved) === saved) {
       // The rewrite is the user's own action, so it is adopted even into a
       // focused editor; the title is not the rewrite's to touch.
-      adoptContent(fresh);
+      adoptContent();
       return;
     }
-    // Typing landed while the workflow committed. It is kept: the file is the
-    // new baseline, and the next save writes the draft over it — a save, not
-    // a conflict. The draft keeps the link text the user sees.
-    savedContent = fresh;
+    // Typing landed while the workflow committed. It is kept: the host moved its
+    // baseline to the file with the rewrite, so its next save writes the draft
+    // over it — a save, not a conflict. The draft keeps the link text the user sees.
     saveQueue.resume();
   }
 
@@ -192,84 +196,78 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     return run;
   }
 
-  /* Which files the saves in flight may still write: each save's note, and
-   * — when it carries a title change — a rename's destination and every note
-   * whose links it rewrites, which no one knows until the store answers. A
-   * note switch reads its incoming note WHILE such a save runs only when the
-   * save cannot touch that file (`fenceIncomingRead`); otherwise it waits, as
-   * every switch did. */
-  const savingKeys = new Set<string>();
-  let identitySavesInFlight = 0;
-  /* Bumped when a save that may rename starts, so a fence notices one that
-   * started AND finished while its read was out. */
-  let identitySaveEpoch = 0;
-
-  function trackSave(): Promise<boolean> {
-    const key = originalId === null ? null : fileKey(originalId);
-    const mayRename = key === null || title !== savedTitle;
-    if (key !== null) savingKeys.add(key);
-    if (mayRename) {
-      identitySavesInFlight += 1;
-      identitySaveEpoch += 1;
-    }
-    return serializePersistence(saveNote).finally(() => {
-      if (key !== null) savingKeys.delete(key);
-      if (mayRename) identitySavesInFlight -= 1;
-    });
-  }
-
-  function fenceIncomingRead(incomingId: string): (() => boolean) | null {
-    const key = fileKey(incomingId);
-    const cannotTouch = () =>
-      originalId !== null &&
-      fileKey(originalId) !== key &&
-      title === savedTitle &&
-      !savingKeys.has(key) &&
-      identitySavesInFlight === 0;
-    if (!cannotTouch()) return null;
-    const epoch = identitySaveEpoch;
-    return () => identitySaveEpoch === epoch && cannotTouch();
-  }
-
   const saveQueue = createNoteSaveQueue({
-    save: () => (deps.savesHeld?.() ? Promise.resolve(false) : trackSave()),
+    save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
-    editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
-    notifySaved,
   });
+
+  /* The editor reports the outgoing note's last coalesced change as it lets go of it;
+   * when the session has already moved off that note, it is not an edit of the one it
+   * now holds. (A note switch hands the editor over before moving, so its own change
+   * report is the outgoing note's last edit.) */
+  function openInEditor(noteId: string | null): void {
+    suppressSaveOnChange = true;
+    try {
+      void deps.openEditorNote(noteId, deps.isVaultLocked?.() ?? false);
+    } finally {
+      suppressSaveOnChange = false;
+    }
+  }
+
+  /* Leaving the note this session created, untouched — never renamed (a rename clears
+   * `createdNoteId`) and its body empty (note-actions.md) — deletes it once the editor has
+   * let go of it. The body is read from the editor, which still holds it: the coalesced
+   * change of a last keystroke may not have reached `debouncedSave` yet. An editor holding
+   * no note (mid-switch, it shows none) says nothing about it, so the note stays, as it
+   * does when the open fails. While the vault is locked the note left keeps no unsaved
+   * text: no save can succeed (flushBeforeLeaving). A newer switch back to it, made while
+   * this one was in flight, keeps it. */
+  async function openLeavingUntouched(noteId: string | null): Promise<void> {
+    newestOpenedNoteId = noteId;
+    const abandoned =
+      createdNoteId !== null && createdNoteId !== noteId && deps.getEditorContent() === ''
+        ? createdNoteId
+        : null;
+    await deps.openEditorNote(noteId, deps.isVaultLocked?.() ?? false);
+    if (createdNoteId !== newestOpenedNoteId) createdNoteId = null;
+    if (abandoned === null || abandoned === newestOpenedNoteId) return;
+    void deleteNote(abandoned).then(
+      () => deps.onNoteDeleted?.(abandoned),
+      (error) => console.warn('Failed to delete an untouched new note:', error),
+    );
+  }
+
   const noteLoader = createNoteLoader({
     flushSave: flushBeforeLeaving,
-    getNotes: deps.getNotes,
-    getEditorContent: deps.getEditorContent,
-    isSavePending: saveQueue.isPending,
-    fenceIncomingRead,
-    /* `noteId` is the loader's own signal, not the editor's: this branch's
-     * `deps.openEditorNote` takes only the body. A null id opening over the
-     * `new` route is the one case that must remember the folder the note was
-     * created in, because `clearPendingFolder` runs before the first save. */
-    openNote: (noteId, value) => {
-      if (noteId === null && deps.getNoteId() === 'new')
-        pendingNewFolder = deps.getPendingFolder?.() ?? null;
-      deps.openEditorNote(noteId, value);
-    },
+    getEditorNoteId: deps.getEditorNoteId,
+    getPendingFolder: () => deps.getPendingFolder?.() ?? null,
+    onNoteRenamed: deps.onNoteRenamed,
+    openNote: openLeavingUntouched,
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
     autoResizeTitle: titleController.autoResizeTextarea,
     clearTitleWarning: titleController.clearWarning,
-    navigate: deps.navigate,
     patchState,
     resetState: resetSessionState,
   });
 
-  function debouncedSave(nextContent?: string): void {
-    if (suppressSaveOnChange) return;
-    if (isEditorChangeEcho({ nextContent, content, savedContent })) return;
-    if (nextContent !== undefined) {
-      content = nextContent;
-    }
-    if (loading || !hasFileSystem || deps.getNoteId() === null) return;
-    if (nextContent === undefined) saveQueue.schedule(TITLE_SAVE_DEBOUNCE_MS);
-    else saveQueue.schedule(BODY_SAVE_DEBOUNCE_MS, BODY_SAVE_MAX_WAIT_MS);
+  /**
+   * An edit: the editor's coalesced report of a body edit, or a title edit. A body edit
+   * saves nothing here — the editor's host saves it on its own timer — it only moves what
+   * sync and the outside-change coordinator read. The editor reports only edits its
+   * engine applied, never a load or reload, so an adopted outside change is not one.
+   */
+  function recordEdit(): boolean {
+    if (suppressSaveOnChange) return false;
+    if (loading || !hasFileSystem || deps.getNoteId() === null) return false;
+    lastEditTime = Date.now();
+    editVersion++;
+    return true;
+  }
+
+  /** A title edit, which also arms the title's rename. */
+  function debouncedSave(): void {
+    if (recordEdit()) saveQueue.schedule(TITLE_SAVE_DEBOUNCE_MS);
   }
 
   // A failed save holds the user on the note (editor.md), but while the vault is
@@ -287,8 +285,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (deps.getNoteId() === null && originalId === null && !title) return false;
     return editorHasUnseenChanges({
       editorContent: deps.getEditorContent(),
-      savedContent,
-      content,
+      savedContent: savedContent(),
       title,
       savedTitle,
     });
@@ -300,38 +297,31 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   function isDirty(): boolean {
-    const noteId = deps.getNoteId();
-    if (!originalId && noteId !== 'new') return false;
+    if (!originalId) return false;
     return saveQueue.isPending() || hasUnseenEditorChanges();
   }
 
-  function adoptContent(freshContent: string): void {
-    content = freshContent;
-    savedContent = freshContent;
+  function adoptContent(): void {
     suppressSaveOnChange = true;
     try {
-      deps.setEditorContent(freshContent);
+      deps.reloadEditorNote();
     } finally {
       suppressSaveOnChange = false;
     }
   }
 
-  function rebaseSavedContent(freshContent: string): void {
-    savedContent = freshContent;
-  }
-
   /**
-   * Re-hands the open note to a NEW editor instance.
+   * Re-hands the open note to an editor that just mounted.
    *
-   * A replaced editor component mounts empty, under a session that still holds
-   * the note — a blank page over a file with content, and (before the editor's
-   * own guard) one flush away from writing that blank page to disk. Today only
-   * a dev hot reload swaps the instance; a `{#key}` or `{#if}` around the
-   * editor would do it in production, which is exactly why the recovery lives
-   * here rather than in a comment. → docs/spec/editor.md
+   * An editor component mounts empty; under a session that still holds the
+   * note that is a blank page over a file with content. Today only a dev hot
+   * reload remounts it; a `{#key}` or `{#if}` around the editor would do it in
+   * production, which is exactly why the recovery lives here rather than in a
+   * comment. The shell calls it per mount (app/createEditorMountReattach.ts).
+   * → docs/spec/editor/cursor/a-note-the-editor-cannot-hold.md
    */
   function reattachEditor(): void {
-    deps.openEditorNote(originalId ?? deps.getNoteId(), content);
+    openInEditor(originalId);
   }
 
   /**
@@ -357,34 +347,12 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     titleController.handleBlur();
   }
 
-  /**
-   * A sync rename or move named the note `newTitle`. A typed title the save
-   * will take still wins, as on the native shells: it saves now, renaming the
-   * note from its new id, and any warning it had (a duplicate in the old
-   * folder) is stale. One the save refuses gives way, keeping its warning
-   * while the field still shows it.
-   */
-  function applyRemoteRename(toId: string, newTitle: string): void {
-    const typedTitle = titleHasUnsavedEdit(title, savedTitle);
-    originalId = toId;
-    savedTitle = newTitle;
-    if (typedTitle && !titleSaveRefusal(title, hasDuplicateTitle)) {
-      titleController.clearWarning();
-      saveQueue.resume();
-      return;
-    }
-    showCommittedTitle(newTitle);
-    if (heldFieldTitle === null) titleController.clearWarning();
-  }
-
-  function seedOpenNote(id: string, body: string): void {
+  function seedOpenNote(id: string): void {
     originalId = id;
     title = id;
     heldFieldTitle = null;
     savedTitle = id;
-    content = body;
-    savedContent = body;
-    deps.openEditorNote(id, body);
+    openInEditor(id);
     deps.setPrevNoteId(id);
     titleController.clearWarning();
     deps.navigate(`/note/${encodeURIComponent(id)}`);
@@ -394,7 +362,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     noteLoader.cancel();
     saveQueue.cancelPending();
     titleController.clearWarning();
-    deps.openEditorNote(null, '');
+    // The note went away (deleted here or elsewhere): there is nothing left to discard.
+    createdNoteId = null;
+    openInEditor(null);
     resetSessionState();
     deps.navigate('/');
   }
@@ -406,9 +376,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get fieldTitle() {
       return heldFieldTitle ?? title;
     },
-    get content() {
-      return content;
-    },
     get originalId() {
       return originalId;
     },
@@ -419,16 +386,17 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       return loading;
     },
     get editVersion() {
-      return saveQueue.editVersion;
+      return editVersion;
     },
     get lastEditTime() {
-      return saveQueue.lastEditTime;
+      return lastEditTime;
     },
+    /** The title's save, or an edit the editor's host has not written yet. */
     get savePending() {
-      return saveQueue.isPending();
+      return saveQueue.isPending() || !deps.isEditorIdle();
     },
     get savedContent() {
-      return savedContent;
+      return savedContent();
     },
     get dirty() {
       return isDirty();
@@ -443,9 +411,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       return deps.isComposing();
     },
     debouncedSave,
+    editorEdited: () => void recordEdit(),
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
-    runBeforePendingSave: serializePersistence,
+    checkpointEditor: deps.saveEditorNote,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
@@ -456,10 +425,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     handleTitlePointerDown: titleController.handlePointerDown,
     seedOpenNote,
     cancelAndClear,
-    applyExternalContent: adoptContent,
+    applyExternalContent: () => deps.takeOutsideEditorChange(),
     reattachEditor,
-    rebaseSavedContent,
     noteRelinked,
-    applyRemoteRename,
+    followEditorNote,
+    editorSaved,
   };
 }

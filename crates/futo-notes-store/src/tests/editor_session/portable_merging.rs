@@ -279,8 +279,8 @@ fn portable_front_matter_merge_is_written_even_though_the_page_cannot_adopt_it()
     let save = host.checkpoint().unwrap();
     assert_eq!(save.offered.as_deref(), Some(merged));
     assert!(page.adopt_merged_source(Revision(1), merged).is_err());
-    host.close().unwrap();
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), merged);
+    host.reload(SessionToken(612), false).unwrap();
+    assert_eq!(host.snapshot().source, merged);
     assert_eq!(note_sources(&store), [merged]);
 }
 
@@ -304,6 +304,17 @@ fn portable_close_after_an_unadopted_merge_writes_the_merge_once() {
     assert_eq!(closed.disposition, FlushDisposition::Converged);
     assert_eq!(closed.mutation, None);
     assert_eq!(note_sources(&store), ["REMOTE\n\nLOCAL\n"]);
+}
+
+#[test]
+fn portable_rename_after_an_offer_keeps_both_versions() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let (mut host, _page) = merged_outside_edit(&store, 615);
+    host.rename_title("x").unwrap();
+    let sources = note_sources(&store);
+    assert!(sources.iter().any(|source| source == "REMOTE\n\nLOCAL\n"));
+    assert!(sources.iter().any(|source| source == "first\n\nLOCAL\n"));
 }
 
 #[test]

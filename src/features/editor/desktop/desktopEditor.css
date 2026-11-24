@@ -1,0 +1,382 @@
+/* The desktop editor surface (view.ts). Every row of text is one line unit tall (--line),
+ * blank lines included, with no margins between blocks but a code block's header and gap
+ * (desktopCodeBlocks.css); anything taller is a whole number of lines, but for a first- and
+ * second-level heading's rows (30px, 28px). Plus Jakarta Sans 16px on a 24px line
+ * (src/styles/desktop-fonts.css). `.note-body` is the scroller, so the surface is a plain box
+ * at least its container's height (docs/spec/editor/cursor/blank-editor-surface.md). */
+.desktop-editor-wrap {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The shell's `.editor-container > div` is a flex row, so the surface takes its width. */
+.desktop-editor {
+  --line: 24px;
+  /* `--color-border` (#e5e5e5 on #fcfcfc, #262626 on #0a0a0a) as a tint of the text colour,
+   * for a quote's bars and a divider's rule: the selection is drawn behind the lines
+   * (highlight.ts), and an opaque bar cut a hole in it. */
+  --rule-color: color-mix(in srgb, var(--color-text, #0f0f0f) 11%, transparent);
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 100%;
+  /* The left edge is the title's text edge at any width: the title column is 740px
+   * centred in this one (desktop-shell.css) with 20px padding, so (100% - 740px) / 2 + 20px,
+   * and 20px once the window is narrower than the column. */
+  padding: 14px 18px max(40vh, 280px) max(20px, calc(50% - 350px));
+  outline: none;
+  color: var(--color-text, #0f0f0f);
+  font-family: 'Atom Character', var(--font-sans, system-ui, -apple-system, sans-serif);
+  font-size: 16px;
+  line-height: var(--line);
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  /* Tab (view.ts → the engine) indents a line by a tab: 2em reads as an indent, which the
+   * preflight's 4 spaces are too narrow for. */
+  tab-size: 2em;
+  /* The caret is drawn by .desktop-caret; the native selection stays. */
+  caret-color: transparent;
+}
+
+/* Each chunk is its own compositing layer, so a frame after an edit repaints (and
+ * recomputes the event regions of) one chunk, not the whole note: 1 ms instead of 8 ms
+ * per keystroke in a 58,000-line note (lineElements.ts). */
+.desktop-editor > .chunk {
+  will-change: transform;
+}
+
+/* The highlight is drawn (highlight.ts); the native selection stays, unpainted. */
+.desktop-editor ::selection {
+  background: transparent;
+}
+
+/* Behind the text: the wrap is its own stacking context, so -1 stays above the page. */
+.desktop-selection {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.desktop-selection > div {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--color-selection, #ffe4d1);
+}
+
+/* The redesign's heading sizes and weights. A heading has no space of its own above or below
+ * it (a blank line makes space): a first- or second-level heading's rows are 1.25 times its
+ * font size, as Android draws them, the second's rounded up to a whole pixel so the lines
+ * under it stay on whole pixels; the others' are one line unit. */
+.desktop-editor .h1 {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 30px;
+}
+
+.desktop-editor .h2 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.desktop-editor .h3 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.desktop-editor .h4 {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.desktop-editor .h5 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.desktop-editor .h6 {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+/* Inline formats (lineElements.ts `drawLine`): one span per run, a class per format, so they
+ * compose, and with a heading's size and weight too. Bold is `bolder` than its line: 700 in
+ * body text and on a 500 heading, 800 (the face's heaviest) on a 600 or 700 one. */
+.desktop-editor .bold {
+  font-weight: bolder;
+}
+
+.desktop-editor .italic {
+  font-style: italic;
+}
+
+.desktop-editor .strike {
+  text-decoration: line-through;
+}
+
+.desktop-editor .code {
+  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-size: 0.75em;
+  /* `--color-code-bg` (#e2e2e2 on #fcfcfc, #2a2a2a on #0a0a0a) as a tint of the text colour:
+   * the selection is drawn behind the text (highlight.ts), and an opaque fill hid it. */
+  background: color-mix(in srgb, var(--color-text, #0f0f0f) 12%, transparent);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  /* Its own font's line box would grow the row; its background paints the glyphs' box. */
+  line-height: 0;
+}
+
+/* Lists, quotes and dividers (lineElements.ts `drawLine`): each line carries its block as
+ * classes, `d1`… setting `--depth` (list nesting) and `q1`… `--quote` (quote nesting), and is
+ * indented by its own left padding, so a wrapped row lines up with the text above it and every
+ * row stays one line unit. Quote bars come first, then the list's indent. A list level steps
+ * 1.4em, as Milkdown's lists do, tapering to half from the fifth level and stopping after the
+ * eighth (milkdownEditor.blocks.css says why). A list item's marker is an element in the text
+ * (atomElements.ts), drawn in the indent. */
+.desktop-editor .line.list,
+.desktop-editor .line.quote {
+  --depth: 0;
+  --quote: 0;
+  --quote-step: 18px;
+  --list-step: 22.4px;
+  --marker-gap: 0.35em;
+  --indent: calc(
+    var(--quote) * var(--quote-step) + var(--list-step) * min(var(--depth), 4) + var(--list-step) /
+      2 * clamp(0, var(--depth) - 4, 4)
+  );
+  --text: var(--indent);
+  padding-left: var(--text);
+}
+
+.desktop-editor .line.d1 {
+  --depth: 1;
+}
+.desktop-editor .line.d2 {
+  --depth: 2;
+}
+.desktop-editor .line.d3 {
+  --depth: 3;
+}
+.desktop-editor .line.d4 {
+  --depth: 4;
+}
+.desktop-editor .line.d5 {
+  --depth: 5;
+}
+.desktop-editor .line.d6 {
+  --depth: 6;
+}
+.desktop-editor .line.d7 {
+  --depth: 7;
+}
+.desktop-editor .line.d8 {
+  --depth: 8;
+}
+.desktop-editor .line.d9 {
+  --depth: 9;
+}
+.desktop-editor .line.q1 {
+  --quote: 1;
+}
+.desktop-editor .line.q2 {
+  --quote: 2;
+}
+.desktop-editor .line.q3 {
+  --quote: 3;
+}
+.desktop-editor .line.q4 {
+  --quote: 4;
+}
+.desktop-editor .line.q5 {
+  --quote: 5;
+}
+.desktop-editor .line.q6 {
+  --quote: 6;
+}
+
+/* One 3px bar per quote level, in the border colour, and the quote's text muted: a
+ * background, which costs no box of its own (a 58,000-line note holds thousands). */
+.desktop-editor .line.quote {
+  --bars: repeating-linear-gradient(
+      to right,
+      var(--rule-color) 0 3px,
+      transparent 3px var(--quote-step)
+    )
+    0 0 / calc(var(--quote) * var(--quote-step)) 100% no-repeat;
+  color: var(--color-muted, #737373);
+  background: var(--bars);
+}
+
+/* The indent holds an ordered marker of two characters (`1.`, `9)`). A wider one starts at the
+ * item's left edge and pushes the item's text right by exactly what it lacks (`--marker-width`,
+ * its measured width, from markerWidth.ts), wrapped rows included, so no marker reaches left of
+ * the text column and none is set in from it. */
+.desktop-editor .line.ordered {
+  --marker-overflow: max(
+    0px,
+    calc(var(--marker-width, 0px) + var(--marker-gap) - var(--list-step))
+  );
+  --text: calc(var(--indent) + var(--marker-overflow));
+}
+
+/* A task's checkbox takes a 28px slot before its text, in place of a bullet (a task is a
+ * bullet with a box: portable-core/linedown.md). */
+.desktop-editor .line.task {
+  --text: calc(var(--indent) + 6px);
+}
+
+/* A list item's marker (atomElements.ts): its one character draws nothing (its fill is
+ * transparent) and its box draws the marker. Out of the text's flow, at its static place (the
+ * text's start), moved back into the indent against the text, so the text and its wrapped rows
+ * start at the indent; the caret stands at its left edge before it and at the text after it. */
+.desktop-editor .marker {
+  position: absolute;
+  height: var(--line);
+  -webkit-text-fill-color: transparent;
+  transform: translateX(calc(-100% - var(--marker-gap)));
+}
+
+.desktop-editor .marker.bullet {
+  width: 10px;
+  background: radial-gradient(circle closest-side, currentColor 90%, transparent) 50% 50% / 6px 6px
+    no-repeat;
+}
+
+/* An ordered item's marker as typed, read aloud by nothing (the `/ ''` is its empty alternative
+ * text): the item's own character is the marker's text. */
+.desktop-editor .marker.ordered::after {
+  content: attr(data-marker);
+  content: attr(data-marker) / '';
+  -webkit-text-fill-color: currentColor;
+}
+
+/* The checkbox: its box stands at a fixed place in the slot, where the character starts, so the
+ * caret before it stands at the box's left edge. Nothing is laid out after the character: a box
+ * placed after it was squeezed by a fallback font's width for it, and its tick lost. The pointer
+ * over it is the arrow (a click toggles it: pointer.ts). */
+.desktop-editor .task-box {
+  box-sizing: border-box;
+  width: 28px;
+  margin-left: -30px;
+  padding-left: 6px;
+  transform: none;
+  cursor: default;
+}
+
+.desktop-editor .task-box::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: calc(50% - 8px);
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid color-mix(in srgb, var(--color-muted, #737373) 70%, transparent);
+  border-radius: 4px;
+}
+
+/* The tick is the box's own picture, so it cannot part from the box. */
+.desktop-editor .task-box[aria-checked='true']::before {
+  border-color: var(--color-primary, #f26b1f);
+  background: var(--color-primary, #f26b1f)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.46 7.71 6.59 9.83 11.54 4.88' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E")
+    center / 16px 16px no-repeat;
+}
+
+/* A divider's text is its atom's one character, kept for the caret and the selection but
+ * not shown: a 1px rule in the border colour across the row is. */
+.desktop-editor .line.divider {
+  --rule: linear-gradient(var(--rule-color), var(--rule-color)) 0 50% / 100% 1px no-repeat;
+  color: transparent;
+  background: var(--rule);
+}
+
+.desktop-editor .line.quote.divider {
+  background: var(--rule), var(--bars);
+}
+
+/* Its width, height and place are written on every draw, snapped to device pixels
+ * (caretPixels.ts). */
+.desktop-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* The bar blinks; the flag beside it stays lit. */
+.desktop-caret-bar {
+  height: 100%;
+  background: var(--color-text, #0f0f0f);
+  animation: desktop-caret-blink-a 1.06s steps(1) infinite;
+}
+
+/* The caret's flag (caret.ts `drawFlag`): a solid pennant standing on the caret's top, in its
+ * colour, so it covers none of the caret's own row; each mark drawn as its format reads, lit
+ * for as long as the caret is drawn. A first take, to be tuned by eye. */
+.desktop-caret-flag {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  gap: 3px;
+  padding: 0 4px 0 3px;
+  border-radius: 3px 3px 3px 0;
+  background: var(--color-text, #0f0f0f);
+  color: var(--color-bg, #fcfcfc);
+  font: 600 9px/12px var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+.desktop-caret-flag[hidden] {
+  display: none;
+}
+
+.desktop-caret-flag [data-mark='B'] {
+  font-weight: 800;
+}
+
+.desktop-caret-flag [data-mark='I'] {
+  font-style: italic;
+}
+
+.desktop-caret-flag [data-mark='S'] {
+  text-decoration: line-through;
+}
+
+.desktop-caret-flag [data-mark='<>'] {
+  font-family: 'Martian Mono', ui-monospace, monospace;
+  font-weight: 400;
+}
+
+/* Where dragged text would drop (pointer.ts): a caret that does not blink. */
+.desktop-drop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-text, #0f0f0f);
+  pointer-events: none;
+}
+
+/* Restarting the blink on every move switches between two identical animations. */
+.desktop-caret[data-blink='b'] > .desktop-caret-bar {
+  animation-name: desktop-caret-blink-b;
+}
+
+@keyframes desktop-caret-blink-a {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-caret-blink-b {
+  50% {
+    opacity: 0;
+  }
+}

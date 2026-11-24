@@ -4,10 +4,6 @@
       "count": 2,
       "why": "the toggle, labelled by its owner's label prop, and each item, labelled from its entries: the owner's verbs (ToggleNoteActionsMenu and the note menu's items; ToggleSortMenu, SetSortOrder)"
     },
-    "src/app/components/NoteWorkspace.svelte": {
-      "count": 1,
-      "why": "the note body's empty margin: a press there blurs the title or puts the caret on the first line, which PlaceCaret does"
-    },
     "src/app/components/WindowControls.svelte": {
       "count": 1,
       "why": "one button per window control, labelled from LABEL_PATHS: MinimizeWindow, ToggleMaximizeWindow, CloseWindow"
@@ -91,6 +87,10 @@
     "src/features/settings/hosted/UnlockStep.svelte": {
       "count": 1,
       "why": "the three unlock-method buttons, each labelled from its method (sync.hosted.unlock.doors.*): SelectUnlockMethod"
+    },
+    "src/features/editor/desktop/FormatToolbar.svelte": {
+      "count": 2,
+      "why": "the selection toolbar's block and mark buttons, labelled from the toolbar manifest (blockButtons.ts) and its BUTTONS table; each is a verb the toolbar registers while it shows (Heading1, Heading2, Heading3, Quote, Bold, Italic, Strikethrough, Code)"
     }
   },
   "noControl": {

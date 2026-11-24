@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use search::StoreSearch;
 
 pub use editor_session::{
-    EditorClock, EditorNoteRead, EditorStoreError, PortableSave, SaveStatus, StoreEditorHost,
-    StoreEditorSession,
+    EditorClock, EditorNoteRead, EditorStoreError, PortableSave, RenameDraftResult, SaveStatus,
+    StoreEditorHost, StoreEditorSession,
 };
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
@@ -354,20 +354,51 @@ impl LocalNoteStore {
         self.search.rebuild();
     }
 
+    /// A change made outside the app, which the file watcher saw. An editor
+    /// attached to a note renamed there follows it
+    /// (`editor_session::follow_external_rename`).
     pub fn observe_external_change(&self, change: FileChange) {
+        if let FileChange::Renamed { from, to } = &change {
+            if let Err(error) = editor_session::follow_external_rename(self, from, to) {
+                futo_notes_core::log_to_stderr!(
+                    "an editor could not follow {from:?} renamed to {to:?}: {error}"
+                );
+            }
+        }
         self.search.notify(&change);
+    }
+
+    /// A move of `from` to `to` that the file watcher could not confirm
+    /// because `from` was written again first. Only an editor's own recreation
+    /// of `from` is adopted (`editor_session::follow_recreated_rename`); the
+    /// search index and the pages hear the edits the watcher reported.
+    pub fn observe_recreated_move(&self, from: &str, to: &str) {
+        if let Err(error) = editor_session::follow_recreated_rename(self, from, to) {
+            futo_notes_core::log_to_stderr!(
+                "an editor could not follow {from:?} moved to {to:?}: {error}"
+            );
+        }
     }
 
     /// Destructive local reset. Session/sync shutdown ordering remains a shell
     /// responsibility; once called, this removes every vault entry, including
     /// images and hidden app-data, and reconciles search from the empty tree.
+    /// Every editor attachment ends first, under the same gate hold, its draft
+    /// discarded: no later save or close can write a note back (AGENTS.md M4).
     pub fn reset(&self) -> Result<(), String> {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
-        let removals = vault::note_paths(&self.root)
+        let ids = vault::note_paths(&self.root)
             .into_iter()
-            .map(|(id, _)| FileChange::Removed(note_filename(&id)))
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
+        for id in &ids {
+            editor_session::terminate_deleted(&self.root, id)?;
+        }
+        let removals = ids
+            .iter()
+            .map(|id| FileChange::Removed(note_filename(id)))
             .collect::<Vec<_>>();
         self.before_write.before_write(&removals);
         vault_fs::clear(&self.root)?;

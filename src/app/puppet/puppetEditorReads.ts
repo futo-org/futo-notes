@@ -1,4 +1,4 @@
-// The editor's reads: its part of `state`, and the `doc`, `show {"text"}` and `clipboard`
+// The editor's reads: its part of `state`, and the `doc` and `show {"text"}`
 // answers. Everything here speaks ProseMirror positions and the lines of puppetLines.ts. The
 // note's text is read as a person reads it, only where it is on screen; everything else about
 // it (which lines show, where the selection is, what changed off screen) is the app's state,
@@ -11,7 +11,8 @@ import { computeActiveFormats } from '../../features/editor/milkdown/formatState
 import { wikilinkDisplay } from '../../features/editor/milkdown/wikilink/display';
 import { getWikilinkIndex } from '../../features/notes/notes.svelte';
 
-import { type ClipboardAccess, type PuppetClipboardContent } from './puppetInput';
+import { clipboardText } from './puppetClipboard';
+import { textEditorDoc, textEditorShow, textEditorState } from './puppetTextEditorReads';
 import { lineMarkdown, lineRuns, lineTags, offsetInLine, type ModelLine } from './puppetLines';
 import { linesOnScreen, noteLines, shownLines, type OnScreen } from './puppetNoteLines';
 import {
@@ -46,16 +47,6 @@ function truncated(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-/** What `Copy` or `Cut` last took; survives switching notes, since the page does. */
-let puppetClipboard: PuppetClipboardContent | null = null;
-
-export const clipboardAccess: ClipboardAccess = {
-  content: () => puppetClipboard,
-  copied: (content) => {
-    if (content) puppetClipboard = content;
-  },
-};
-
 /** A selection that is not a range of text: a whole node, table cells, everything, a gap. */
 function selectionKind(selection: Selection): string | null {
   if (selection instanceof TextSelection) return null;
@@ -88,6 +79,7 @@ function selectionOf(view: EditorView, onScreen: OnScreen | null): Record<string
 }
 
 export function editorState(): Record<string, unknown> {
+  if (puppetProviders.textEditor) return textEditorState();
   const editor = puppetProviders.editor;
   const view = editor?.getView();
   if (!editor || !view) return { ready: false };
@@ -104,7 +96,7 @@ export function editorState(): Record<string, unknown> {
     focused: view.hasFocus(),
     find: editor.find(),
     // Held, not read off the note: cut as the selection's text is. `clipboard` reads it whole.
-    clipboard: puppetClipboard ? truncated(puppetClipboard.text, SELECTION_TEXT_LIMIT) : null,
+    clipboard: clipboardText(),
     // How many edits Undo and Redo would step through: whether an edit is undoable, and
     // how the history grouped it.
     undo: undoDepth(view.state),
@@ -140,6 +132,7 @@ function chipAsDrawn(run: Record<string, unknown>): Record<string, unknown> {
  * as a person reaches it.
  */
 export function editorDoc(args: Args): PuppetOutcome {
+  if (puppetProviders.textEditor) return textEditorDoc(args);
   const unknown = Object.keys(args).find((key) => key !== 'line');
   if (unknown) return refuse(400, `doc takes {} or {"line":N}, not "${unknown}"`);
   const required = requireView();
@@ -185,6 +178,7 @@ function rectOfRange(view: EditorView, from: number, to: number) {
  * (`{"text"}`) lands on. Only what shows: text off screen is found as a person finds it.
  */
 export function showText(text: string): PuppetOutcome {
+  if (puppetProviders.textEditor) return textEditorShow(text);
   const required = requireView();
   if (isPuppetOutcome(required)) return required;
   const { view } = required;
@@ -198,17 +192,4 @@ export function showText(text: string): PuppetOutcome {
     ...(entry ? { line: entry.line, col: offsetInLine(entry, range.from) + 1 } : {}),
     rect: rectOfRange(view, range.from, range.to),
   });
-}
-
-/**
- * The puppet clipboard: `{"clear":true}` empties it (a harness resets it between tasks), and
- * `{"text":"…","html"?:"…"}` fills it as copying from another app would, for Paste to test
- * what the editor makes of outside text.
- */
-export function clipboard(args: Args): PuppetOutcome {
-  if (args.clear === true) puppetClipboard = null;
-  if (typeof args.text === 'string') {
-    puppetClipboard = { text: args.text, html: typeof args.html === 'string' ? args.html : '' };
-  }
-  return ok({ clipboard: puppetClipboard });
 }

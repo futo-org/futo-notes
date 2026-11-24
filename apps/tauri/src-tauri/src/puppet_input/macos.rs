@@ -105,13 +105,26 @@ pub(super) fn send_event(
         (Phase::Down, true) => NSEventType::RightMouseDown,
         (Phase::Dragged, true) => NSEventType::RightMouseDragged,
         (Phase::Up, true) => NSEventType::RightMouseUp,
+        // A hover goes as a drag with nothing held. In a window that is not active (this one
+        // never is made so), a `MouseMoved` reached no page event, nor did an
+        // `OtherMouseDragged` (measured); a `LeftMouseDragged` with no press before it reaches
+        // the page as a trusted `mousemove`, and `buttons` is the physical mouse's (below).
+        (Phase::Moved, _) => NSEventType::LeftMouseDragged,
         (Phase::Wheel, _) => unreachable!("sent by send_wheel above"),
     };
-    let pressure = if step.phase == Phase::Up { 0.0 } else { 1.0 };
+    let pressure = if matches!(step.phase, Phase::Up | Phase::Moved) {
+        0.0
+    } else {
+        1.0
+    };
     let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
         kind,
         in_window,
-        NSEventModifierFlags::empty(),
+        if step.shift {
+            NSEventModifierFlags::Shift
+        } else {
+            NSEventModifierFlags::empty()
+        },
         NSProcessInfo::processInfo().systemUptime(),
         ns_window.windowNumber(),
         None,
@@ -124,7 +137,7 @@ pub(super) fn send_event(
     // as held. Set the mask before either is sent so WebKit sees the same.
     HELD_BUTTONS.store(
         match step.phase {
-            Phase::Up | Phase::Wheel => 0,
+            Phase::Up | Phase::Wheel | Phase::Moved => 0,
             Phase::Down | Phase::Dragged if step.right => 2,
             Phase::Down | Phase::Dragged => 1,
         },

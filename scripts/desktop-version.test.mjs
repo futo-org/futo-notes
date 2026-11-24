@@ -16,6 +16,21 @@ function fixture() {
   tmp = mkdtempSync(join(tmpdir(), 'futo-desktop-version-'));
   const confPath = join(tmp, 'tauri.conf.json');
   const cargoPath = join(tmp, 'Cargo.toml');
+  const lockPath = join(tmp, 'Cargo.lock');
+  writeFileSync(
+    lockPath,
+    `[[package]]
+name = "futo-notes-store"
+version = "0.1.0"
+
+[[package]]
+name = "futo-notes-tauri"
+version = "0.1.0"
+dependencies = [
+ "futo-notes-store",
+]
+`,
+  );
   writeFileSync(
     confPath,
     JSON.stringify(
@@ -42,7 +57,7 @@ tauri-build = { version = "2.0.2", features = [] }
 tauri = { version = "2.9.1", features = ["protocol-asset"] }
 `,
   );
-  return { confPath, cargoPath };
+  return { confPath, cargoPath, lockPath };
 }
 
 afterEach(() => {
@@ -57,15 +72,28 @@ describe('desktop release version stamping', () => {
     expect(readDesktopVersions(paths)).toEqual({
       tauriConfig: '0.1.0',
       cargoPackage: '0.1.0',
+      cargoLock: '0.1.0',
     });
     expect(setDesktopVersion('1.6.0', paths)).toEqual({
       tauriConfig: true,
       cargoPackage: true,
+      cargoLock: true,
     });
     expect(readDesktopVersions(paths)).toEqual({
       tauriConfig: '1.6.0',
       cargoPackage: '1.6.0',
+      cargoLock: '1.6.0',
     });
+  });
+
+  it('stamps the lock file entry too, so a --locked cargo build still runs', () => {
+    const paths = fixture();
+
+    setDesktopVersion('1.6.0', paths);
+    const lock = readFileSync(paths.lockPath, 'utf8');
+
+    expect(lock).toContain('name = "futo-notes-tauri"\nversion = "1.6.0"');
+    expect(lock).toContain('name = "futo-notes-store"\nversion = "0.1.0"');
   });
 
   it('does not rewrite dependency versions in Cargo.toml', () => {

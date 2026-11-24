@@ -38,7 +38,8 @@
           "closeTab": "Close Tab",
           "closeWindow": "Close Window",
           "quit": "Quit {appName}",
-          "toggleSidebar": "Toggle Sidebar"
+          "toggleSidebar": "Toggle Sidebar",
+          "pasteAndMatchStyle": "Paste and Match Style"
         }
       }
     },
@@ -613,6 +614,8 @@
         "addLineAbove": "add a line above",
         "addLineBelow": "add a line below",
         "copied": "Copied to clipboard",
+        "copyFailed": "Could not copy the code",
+        "copyTitle": "Copy code",
         "namePlaceholder": "name",
         "languagePlaceholder": "language"
       },

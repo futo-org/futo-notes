@@ -25,19 +25,6 @@ interface SidebarMutationOptions {
   onNoteIdsDeleted: (ids: string[]) => void;
   onSelect: (id: string) => void;
   onActiveNoteDeleted: () => void;
-  onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
-}
-
-function retargetActiveNote(
-  renames: Array<{ from: string; to: string }> | undefined,
-  options: SidebarMutationOptions,
-): boolean {
-  const activeId = options.getActiveNoteId();
-  if (!activeId) return false;
-  const rename = renames?.find((candidate) => candidate.from === activeId);
-  if (!rename) return false;
-  options.onActiveNoteMoved(rename.from, rename.to, idLeaf(rename.to));
-  return true;
 }
 
 export function collectSiblingFolders(parentPath: string): string[] {
@@ -74,7 +61,6 @@ export async function renameSidebarFolder(
     const result = await renameFolderInPlace(path, newName, siblings);
     if (!result.ok) return result.error ?? { path: 'folders.errors.renameFailed' };
     options.onNoteIdsRenamed(result.renames ?? []);
-    retargetActiveNote(result.renames, options);
     return null;
   });
 }
@@ -112,12 +98,8 @@ export async function renameSidebarNote(
       const fromId = pick.resolve();
       if (!fromId) return { path: 'notes.unavailable' };
       const targetId = parent ? `${parent}/${trimmed}` : trimmed;
-      const renamingActiveNote = options.getActiveNoteId() === fromId;
       const result = await moveNote(fromId, targetId);
       options.onNoteIdsRenamed([{ from: fromId, to: result.id }]);
-      if (renamingActiveNote) {
-        options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
-      }
       return null;
     });
   } catch (cause) {
@@ -140,12 +122,8 @@ export async function moveSidebarNote(
       if (!fromId) return showGlobalToast({ path: 'notes.unavailable' });
       const newId = target ? `${target}/${idLeaf(fromId)}` : idLeaf(fromId);
       if (newId === fromId) return;
-      const movingActiveNote = options.getActiveNoteId() === fromId;
       const result = await moveNote(fromId, newId);
       options.onNoteIdsRenamed([{ from: fromId, to: result.id }]);
-      if (movingActiveNote) {
-        options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
-      }
       showGlobalToast(
         target
           ? { path: 'notes.movedTo', arguments: { destination: target } }
@@ -226,13 +204,12 @@ export async function confirmDeleteSidebarFolder(
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
-    const movedNotes = new Map(result.renames?.map((rename) => [rename.from, rename.to]) ?? []);
-
+    // The open note the delete moved out is followed by its editor; one it did not
+    // move is gone with the folder.
     const activeId = options.getActiveNoteId();
-    if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
-      if (!retargetActiveNote(result.renames, options)) {
-        options.onSelect(movedNotes.get(activeId) ?? '__home__');
-      }
+    const moved = result.renames?.some((rename) => rename.from === activeId) ?? false;
+    if (activeId && activeId !== 'new' && activeId.startsWith(prefix) && !moved) {
+      options.onSelect('__home__');
     }
     const movedCount = result.renames?.length ?? 0;
     showGlobalToast(
@@ -273,7 +250,6 @@ export async function moveSidebarFolder(
       return;
     }
     options.onNoteIdsRenamed(result.renames ?? []);
-    retargetActiveNote(result.renames, options);
     showGlobalToast(
       targetPath
         ? { path: 'folders.movedTo', arguments: { destination: targetPath } }

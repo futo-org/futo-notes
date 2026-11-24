@@ -5,7 +5,7 @@
   "identifier": "com.futo.notes",
   "build": {
     "beforeDevCommand": "pnpm --dir ../.. run dev --host 127.0.0.1 --port 5180 --strictPort",
-    "beforeBuildCommand": "pnpm --dir ../.. run build",
+    "beforeBuildCommand": "node ../../scripts/build-editor-wasm.mjs && pnpm --dir ../.. run build",
     "devUrl": "http://127.0.0.1:5180",
     "frontendDist": "../../../dist"
   },
@@ -27,15 +27,10 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: http: data:; font-src 'self' data:; connect-src 'self' https: http: ws: wss:; media-src 'self' asset:",
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: http: data:; font-src 'self' data:; connect-src 'self' https: http: ws: wss:; media-src 'self' asset:",
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**",
-          "$APPDATA/**",
-          "/tmp/**",
-          "/run/user/*/doc/**"
-        ]
+        "scope": ["$HOME/**", "$APPDATA/**", "/tmp/**", "/run/user/*/doc/**"]
       }
     }
   },

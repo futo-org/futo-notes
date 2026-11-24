@@ -15,9 +15,9 @@ OpenCreateFolderDialog  {name?: string}
 each, as a batch would: it is the dialog's real path, typed and pressed for you, and it stops
 at the first refusal. Leave the argument out to take the steps one at a time.
 
-**Desktop, always.** `CreateNote` (no arguments: the New note button and Cmd+N, an untitled
-buffer, `screen` is `editor:new` until `SetTitle` or the first typing names it; while that
-buffer is still empty, another `CreateNote` is 409 — nothing new would be created),
+**Desktop, always.** `CreateNote` (no arguments: the New note button and Cmd+N; creates an
+`Untitled` note and opens it, `screen` is `editor:<id>`; an untouched one is deleted when
+you leave it),
 `OpenNote {noteId, mode?: current｜foreground｜background}`, `OpenSearch`, `OpenSettings`,
 `ToggleSidebar`, `NewTab`, `CloseActiveTab` (Cmd+W), `ReopenTab`, `StepTab {direction: 1｜-1}`
 (Ctrl+Tab), `ActivateTabByNumber {number 1–9, 9 = last}` (Cmd+1..9), `ActivateTab` and

@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
-    BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, ListingSnapshot, LocalNoteStore,
-    MutationResult, NoteRename, NoteSortOrder, SearchHit, Snapshot, VaultFile,
+    BeforeWrite, BootstrapResult, FileChange, ListingSnapshot, LocalNoteStore, MutationResult,
+    NoteRename, NoteSortOrder, SearchHit, Snapshot, VaultFile,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -68,12 +68,39 @@ impl NoteStoreState {
         Ok(store)
     }
 
+    /// The registry lock is released first: observing a rename waits for the
+    /// store's gate, and nothing else may wait on this lock behind it.
     pub(crate) fn observe(&self, change: FileChange) {
-        if let Ok(active) = self.active.lock() {
-            if let Some(active) = active.as_ref() {
-                active.store.observe_external_change(change);
-            }
+        if let Some(store) = self.active_store() {
+            store.observe_external_change(change);
         }
+    }
+
+    /// After a sync cycle, before the page hears of it: the open editor follows
+    /// the cycle's renames (`LocalNoteStore::follow_sync_renames`), so its next
+    /// timed save cannot recreate a name a peer renamed away. The page's
+    /// projection repeats it, a no-op.
+    pub(crate) fn follow_sync_renames(&self, summary: &futo_notes_sync::SyncSummary) {
+        let Some(store) = self.active_store() else {
+            return;
+        };
+        let renamed = summary
+            .renamed
+            .iter()
+            .map(|pair| futo_notes_store::NoteRename {
+                from: pair.from_id.clone(),
+                to: pair.to_id.clone(),
+            })
+            .collect::<Vec<_>>();
+        if let Err(error) = store.follow_sync_renames(&renamed, &summary.deleted_ids) {
+            futo_notes_core::log_to_stderr!("the editor could not follow sync's renames: {error}");
+        }
+    }
+
+    /// The store, the registry lock released: following waits for its gate.
+    pub(crate) fn active_store(&self) -> Option<Arc<LocalNoteStore>> {
+        let active = self.active.lock().ok()?;
+        active.as_ref().map(|active| active.store.clone())
     }
 
     fn cache_startup_listing(&self, root: PathBuf, listing: ListingSnapshot) {
@@ -254,26 +281,12 @@ pub async fn local_notes_save(
     wanted_id: String,
     content: String,
     modified_ms: Option<i64>,
-    base: Option<String>,
 ) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || match (original_id.as_deref(), base.as_deref()) {
-        (Some(id), Some(base)) => store.save_draft_as_unattached(id, &wanted_id, base, &content),
-        _ => store.save_unattached(original_id.as_deref(), &wanted_id, &content, modified_ms),
+    blocking(move || {
+        store.save_unattached(original_id.as_deref(), &wanted_id, &content, modified_ms)
     })
     .await
-}
-
-#[tauri::command]
-pub async fn local_notes_flush_draft(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    base: String,
-    content: String,
-) -> Result<FlushDraftResult, String> {
-    let store = store(&app, &state)?;
-    blocking(move || store.flush_draft_unattached(&id, &base, &content)).await
 }
 
 #[tauri::command]
@@ -350,7 +363,15 @@ pub async fn local_notes_delete_folder(
 #[tauri::command]
 pub async fn local_notes_reset(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let store = store(&app, &state)?;
-    blocking(move || store.reset()).await
+    let editor = state.editor.clone();
+    // In this order: the reset ends the attachment under its gate, discarding the
+    // draft, so dropping the worker afterwards closes it without writing (M4).
+    blocking(move || {
+        store.reset()?;
+        editor.close_all();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -435,6 +456,38 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    /// Observing a rename waits for the store's gate and the vault guard: a
+    /// watcher thread that did so holding the registry lock stalled every
+    /// command that looks the store up.
+    #[test]
+    fn observing_a_change_never_holds_the_store_registry_while_it_waits() {
+        let root = temp_root();
+        let notes = std::sync::Arc::new(NoteStoreState::default());
+        *notes.active.lock().unwrap() = Some(ActiveStore {
+            root: root.clone(),
+            store: Arc::new(LocalNoteStore::new(root.clone())),
+        });
+        let vault = futo_notes_core::files::vault_mutation_guard().unwrap();
+        let observing = {
+            let notes = notes.clone();
+            std::thread::spawn(move || {
+                notes.observe(FileChange::Renamed {
+                    from: "a.md".into(),
+                    to: "b.md".into(),
+                });
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let registry_free = notes.active.try_lock().is_ok();
+        drop(vault);
+        observing.join().unwrap();
+        assert!(
+            registry_free,
+            "the watcher held the store registry while it waited"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

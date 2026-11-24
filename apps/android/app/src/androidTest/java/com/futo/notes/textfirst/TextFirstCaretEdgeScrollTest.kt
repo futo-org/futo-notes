@@ -19,8 +19,17 @@ class TextFirstCaretEdgeScrollTest {
 
     private val note = (1..30).joinToString("") { "line $it above\n" } + "\n![tall](tall.png)\n\nafter photo\n" + (1..30).joinToString("\n") { "below $it" }
 
+    /**
+     * These are about carrying a handle, not about composition. A keyboard that composes the word at the caret as the
+     * caret moves (the emulator's AOSP one does) puts a composition under the dragged handle, and on API 34 its window
+     * goes away mid-drag (the next injected move finds no target, "Check failed" in the rig). So the keyboard is asked
+     * for no suggestions, and composes nothing, for these.
+     */
+    private fun BlockDragRig.noSuggestions() = ui { view.inputType = view.inputType or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS }
+
     /** Tap [word] to put the caret there with the keyboard up, then carry its insertion handle to [edge] (screen y). */
     private fun BlockDragRig.carryHandle(word: String, retap: Boolean = false, edge: () -> Float): PointF {
+        noSuggestions()
         compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).all { it.bitmap != null } } }
         ui { view.scrollTo(0, (view.boundaryY(BlockSlot(view.text.toString().indexOf(word), false))!! - view.height * 0.5f).toInt().coerceAtLeast(0)) }
         SystemClock.sleep(300)
@@ -82,6 +91,7 @@ class TextFirstCaretEdgeScrollTest {
 
     /** A hold on [word] with the keyboard up selects it; the same finger then carried to the top edge and held there. */
     private fun BlockDragRig.holdThenCarry(word: String, edge: () -> Float): PointF {
+        noSuggestions()
         compose.waitUntil(5_000) { ui { view.text!!.getSpans(0, view.length(), TfImage::class.java).first().bitmap != null } }
         ui { view.scrollTo(0, (view.boundaryY(BlockSlot(view.text.toString().indexOf(word), false))!! - view.height * 0.5f).toInt().coerceAtLeast(0)) }
         SystemClock.sleep(300)
