@@ -91,8 +91,12 @@ infrastructure owner.
   and breaks UniFFI unwinding. Errors crossing the boundary are `uniffi::Error` enums.
 - Commits use `type(scope): imperative summary` — types `feat|fix|docs|chore|ci|perf|refactor|build|test`,
   scope is a surface or platform. A nontrivial fix's body names the exact failure (pipeline number,
-  error string), the root cause, and a `Verified:` line listing the commands run. Risky work uses a
-  branch + GitLab MR; migrations and perf land as small per-concern commits. Releases: `/release`.
+  error string), the root cause, and a `Verified:` line listing the commands run. Migrations and perf
+  land as small per-concern commits. Releases: `/release`.
+- Push directly to `main` for small changes — bug fixes, tooling, small UI tweaks — after a review by
+  a fresh agent that didn't write the code, ideally one from a different model family. For larger
+  changes, open an MR. If there are visual changes or new flows, the MR description shows them
+  visually, ideally with video when that helps.
 - **A stable `vX.Y.Z` tag publishes itself to both app stores** — `publish:android` to the Play
   PRODUCTION track, `publish:ios:appstore` to Apple review (auto-release on approval). So
   `release-notes/<tag>.md` is the only source of the copy users read, and it must be on the TAGGED
@@ -206,7 +210,7 @@ once on device, and commit; the full suites run once, on the merged branch. Repo
 | **7.7**  | Android          | `apps/android/AGENTS.md`                                                                                 |
 | **7.8**  | CI               | `/ci-doctor`; MRs get no pipeline, so watch the main push after merge                                    |
 | **7.9**  | Any regression   | failing regression first, then owner chain                                                               |
-| **7.10** | Before merge     | `just check` (the only pre-merge check: MRs get no pipeline); `just prepush` for broad/risky work        |
+| **7.10** | Before main      | `just check` + a fresh-agent review (§5); `just prepush` for broad/risky work                            |
 
 ## 8. Testing map
 
