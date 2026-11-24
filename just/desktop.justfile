@@ -25,9 +25,13 @@ tauri-build:
 journal *args:
   @node scripts/journal.mjs "$@"
 
-# Desktop smoke test (tests/AGENTS.md).
+# Desktop smoke test (tests/AGENTS.md): launches an isolated debug app and vault, never the real one.
 test-desktop-smoke:
-  node tests/desktop-smoke.mjs
+  #!/usr/bin/env bash
+  set -euo pipefail
+  unset CARGO_TARGET_DIR
+  just build-desktop-test
+  node tests/desktop-smoke-local.mjs
 
 
 # Embedded debug app with test hooks; always build current web and Rust sources.

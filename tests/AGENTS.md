@@ -103,8 +103,9 @@ These drive actual apps, so they can leave state behind and they can touch devic
   briefly switches its keyboard to Japanese romaji (restored after) to read during a composition.
 - `android-storage-migration.mjs` (`just test-android-storage`) **clears the debug app's data**.
   Claim a pool device with `just qa-claim android` first; never point it at a phone you care about.
-- `desktop-smoke.mjs` (`just test-desktop-smoke`) needs `--notes-dir`, the isolated vault of the app it
-  drives: it reads the typed note back from disk. Never point it at a real vault.
+- `desktop-smoke.mjs` needs `--notes-dir`, the isolated vault of the app it drives: it reads the typed
+  note back from disk. Never point it at a real vault. `just test-desktop-smoke` builds the test app and
+  runs it through `desktop-smoke-local.mjs`, which launches that isolated app for you.
 
 `lib/vaultInvariant.mjs` is the shared oracle: after a story, the vault must contain exactly what the
 story asked for and no unrequested conflict copies. Assert with it rather than eyeballing a
