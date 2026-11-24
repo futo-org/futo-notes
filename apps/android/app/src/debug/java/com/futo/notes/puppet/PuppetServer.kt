@@ -31,19 +31,16 @@ import kotlin.concurrent.thread
  *
  * Two kinds of work arrive here. Navigation verbs and the screens' own verbs run
  * on the main thread against the same [AppNavigator] and handlers the UI calls.
- * Everything else — editor verbs and every inspect query — is forwarded verbatim
- * to the editor WebView's `window.__futoPuppet.run(command, argsJson)`
- * (src/app/puppet), which answers with the `{status, body}` relayed unchanged.
+ * Everything else — the editor's verbs and queries — goes to the native editor on
+ * screen ([forward], PuppetServerEditor.kt).
  *
- * Wire: `GET /actions` · `GET /tree` (`{screen, scale, nodes, scroll, controls, webview}`:
+ * Wire: `GET /actions` · `GET /tree` (`{screen, scale, nodes, scroll, controls}`:
  * the native screens' merged Compose semantics as `{role, text, id, x, y, w, h, actions, flags,
  * section}` in device pixels, windows bottom to top, and per scrolling container `{section, up,
  * down, left, right, first?, last?, total?}` — the same shape iOS answers, so the CLI can see
- * and aim at a Compose row, say which part of the screen it is in, and how far its list goes;
- * `webview` is where the editor WebView sits, `{x, y, w, h}` or null, so the CLI can aim at a
- * CSS pixel; the WebView's content is left to the page) ·
+ * and aim at a Compose row, say which part of the screen it is in, and how far its list goes) ·
  * `POST /do/<Verb>` (body = args) · `POST /<query>` (state, notes, search, observe, clipboard,
- * touches, and the page queries elements, doc, at, show, events, diff, trace — refused off
+ * touches, and the editor queries elements, doc, at, show, events, diff, trace — refused off
  * the editor screen). A Compose screen's own controls (the title field, the find bar, the ⋯
  * menu, a list's New note and row menus, a dialog or sheet) are the verbs it registers
  * through [PuppetVerbs] while it is on screen; a list screen also publishes its rows there
@@ -228,7 +225,7 @@ internal object PuppetServer {
             route.command in PuppetContract.pageQueries && bound.navigator.currentScreen !is Screen.Editor ->
                 PuppetContract.refusal(
                     503,
-                    "${route.command} reads the editor webview; this screen is native. " +
+                    "${route.command} reads the open editor; this screen has none. " +
                         "Use `notes` for the vault and `state` for the screen",
                 )
             else -> forward(bound, route.command, body.ifEmpty { "{}" })
@@ -251,8 +248,6 @@ internal fun PuppetServerStart(
     val view = LocalView.current
     val localization = LocalLocalization.current
     DisposableEffect(navigator, store, localization) {
-        // Native editor QA must not boot an unused Chromium renderer merely
-        // to expose shell navigation. Page queries explicitly refuse below.
         val bound = PuppetServer.Binding(navigator, store, sync, prefs, view, localization)
         PuppetServer.bind(bound)
         onDispose { PuppetServer.unbind(bound) }

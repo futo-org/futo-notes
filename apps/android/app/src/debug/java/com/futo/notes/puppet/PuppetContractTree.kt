@@ -15,11 +15,6 @@ import org.json.JSONObject
 
 private fun PuppetContract.size(width: Int, height: Int) = JSONObject().put("w", width).put("h", height)
 
-/** `/tree`'s `webview`: where the editor WebView sits in device pixels, null when it is not on screen. */
-internal fun PuppetContract.webview(rect: IntRect?): Any =
-    rect?.let { JSONObject().put("x", it.left).put("y", it.top).put("w", it.width).put("h", it.height) }
-        ?: JSONObject.NULL
-
 /**
  * `GET /tree`: the nodes a person can read or touch, in walk order, each with its
  * [sections] entry, and the [scrolls] of the containers they are in. A node something takes

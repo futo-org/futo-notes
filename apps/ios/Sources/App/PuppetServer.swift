@@ -9,17 +9,14 @@
     /// Three kinds of verb arrive here. The shell's own (`OpenNote`, `GoBack`, the root
     /// list's and Settings' values: PuppetServerContract+NativeVerbs) run on the main actor
     /// against the same `NavigationStack` path the user taps through; so do the verbs a
-    /// SwiftUI screen registers for its own controls (PuppetVerbs). The editor's are
-    /// forwarded verbatim to the editor webview's `window.__futoPuppet.run(command,
-    /// argsJson)` (src/app/puppet), which answers with the `{status, body}` this server
-    /// relays unchanged.
+    /// SwiftUI screen registers for its own controls (PuppetVerbs). The editor's go to the
+    /// native editor on screen (PuppetNativeEditor, PuppetNativeVerbs).
     ///
     /// Wire: `GET /actions` · `GET /tree` (what is on screen, from the app's own
-    /// accessibility: PuppetScreenReader; with where the editor webview sits when it is up,
-    /// and the simulator: the CLI aims real touches with them) · `POST /do/<Verb>`
-    /// (body = args) · `POST /<query>` (body = args): the shell answers state, notes,
-    /// search, observe and touches, the page elements, doc, at, show, events, diff, trace
-    /// and clipboard. A request over 256 KB is answered 413.
+    /// accessibility: PuppetScreenReader; with the simulator, so the CLI can aim real
+    /// touches) · `POST /do/<Verb>` (body = args) · `POST /<query>` (body = args): the shell
+    /// answers state, notes, search, observe and touches, the editor elements, doc, at, show,
+    /// events, diff, trace and clipboard. A request over 256 KB is answered 413.
     /// Design record: docs/research/agent-native-app-design.md.
     final class PuppetServer {
         let navigation: AppNavigation

@@ -5,9 +5,9 @@ use super::gesture_receipt::{keys_receipt, touch_cursor, touch_receipt, unreceiv
 use super::*;
 
 /// `tap`/`drag` on a phone, aimed at screen units (or any row's ref, or text on screen), or
-/// `type`/`press` into whatever has focus, sent by `axe` or `adb`. With the editor up the page's
-/// own trace brackets it too, so the receipt keeps the events and handlers; either way it
-/// closes on the screen before and after.
+/// `type`/`press` into whatever has focus, sent by `axe` or `adb`. With the editor up its own
+/// trace brackets it too, so the receipt keeps the document and selection change; either way
+/// it closes on the screen before and after.
 pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply, String> {
     if let Some(reason) = wrong_input_model(target, name) {
         return Err(reason);
@@ -57,8 +57,8 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
         });
         Ok(())
     };
-    // Both renderers snapshot the document around input. Only a real WebView
-    // can also report DOM events; native trace receipts carry document/selection diffs.
+    // The native editor snapshots the document around input: its trace receipt carries the
+    // document/selection diff, never DOM events.
     let traced_by_editor = if before.has_editor() {
         Some(traced(target, deliver)?).filter(|record| record.status == 200)
     } else {
@@ -74,7 +74,6 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
     if let Some(why) = unreceived(*platform, name, tool, &reached) {
         return Ok(Reply::refusal(409, why));
     }
-    let page = before.webview.is_some() && traced_by_editor.is_some();
     let mut receipt = match (traced_by_editor, before.editor_offset()) {
         (Some(mut record), Some(offset)) => {
             shift(&mut record.body, offset);
@@ -88,20 +87,6 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
     let native_edit = before.native_editor && app::editor_changed(&receipt);
     if name == "type" && untouched && !app::changed(&receipt) && !native_edit {
         return Ok(typed_into_nothing(&args));
-    }
-    // A touch inside the web view that the page never saw was taken by something native on
-    // top of it: the predictive-text bar, a Paste callout (AGENTS.md M21). One on the chrome
-    // around it is the chrome's, and its receipt is the screen.
-    if page && !keys && untouched && in_page(&before, &args) {
-        return Ok(Reply::refusal(
-            409,
-            format!(
-                "{name} at {} produced NO page events and changed nothing: something native over \
-                 the editor took it (on iOS the predictive-text bar over the lines below the \
-                 caret, a Paste/Select callout). `elements` shows what is on top.",
-                compact(&args)
-            ),
-        ));
     }
     if let Some(object) = receipt.as_object_mut() {
         object.insert(
@@ -117,8 +102,8 @@ pub(crate) fn gesture(target: &Target, name: &str, args: &Value) -> Result<Reply
 }
 
 /// Aim `{"ref"}` at that row, and `{"text"}` at the one place on screen that shows it: a native
-/// row, or that text in the editor's page, in screen units. Text two places show is refused
-/// with both, as the page refuses two occurrences; text nothing shows, with the page's way to
+/// row, or that text in the editor, in screen units. Text two places show is refused with
+/// both, as the editor refuses two occurrences; text nothing shows, with the editor's way to
 /// bring it on.
 pub(crate) fn aim(
     target: &Target,
@@ -230,16 +215,6 @@ fn send(tool: &str, sends: &[Vec<String>], delay: Option<Duration>) -> Result<Op
     }
     Ok((delay.is_some() && sends.len() > 1)
         .then(|| last_sent.as_millis() as u64 / (sends.len() as u64 - 1)))
-}
-
-/// Whether the gesture's point is inside the editor's web view.
-fn in_page(before: &View, args: &Value) -> bool {
-    let (Some(webview), Some(x), Some(y)) =
-        (before.webview, args["x"].as_f64(), args["y"].as_f64())
-    else {
-        return false;
-    };
-    x >= webview.x && y >= webview.y && x <= webview.x + webview.w && y <= webview.y + webview.h
 }
 
 /// A paced `type` as its key presses: one `type` of each character.

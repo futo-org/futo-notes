@@ -156,8 +156,8 @@ fn a_desktop_settle_waits_for_an_input_the_page_has_not_seen_yet() {
     assert!(EVENT_READS.load(std::sync::atomic::Ordering::SeqCst) > 12);
 }
 
-/// An Android screen showing `rows`, with the editor's web view at `webview` when it is up.
-fn phone_view(rows: Vec<Value>, webview: Option<crate::native::Rect>) -> screen::View {
+/// An Android screen showing `rows`, with the native editor up when `native_editor`.
+fn phone_view(rows: Vec<Value>, native_editor: bool) -> screen::View {
     screen::View {
         screen: "list".into(),
         size: crate::native::Rect {
@@ -170,8 +170,7 @@ fn phone_view(rows: Vec<Value>, webview: Option<crate::native::Rect>) -> screen:
         platform: NativePlatform::Android,
         rows,
         scroll: vec![],
-        webview,
-        native_editor: false,
+        native_editor,
         moving: false,
         ready: false,
     }
@@ -186,7 +185,7 @@ fn text_on_a_native_phone_screen_aims_at_the_row_that_shows_it() {
             json!({"ref": "n4", "role": "button", "text": "Sort by Name", "section": "menu",
                           "rect": {"x": 20, "y": 300, "w": 200, "h": 48}}),
         ],
-        None,
+        false,
     );
     let target = Target::Native(NativePlatform::Android, 1, "emulator-5554".into());
     let mut tap = json!({"text": "Name"});
@@ -249,18 +248,12 @@ fn text_two_places_on_a_phone_screen_show_is_refused_with_both() {
         reply.body["error"].as_str().unwrap().to_string()
     };
 
-    let list = phone_view(vec![row("n1", "milk"), row("n2", "milk shake")], None);
+    let list = phone_view(vec![row("n1", "milk"), row("n2", "milk shake")], false);
     let error = refused(&list, "milk");
     assert!(error.contains("n1 \"milk\", n2 \"milk shake\""), "{error}");
     assert!(error.contains("`ref`"), "{error}");
 
-    let webview = Some(crate::native::Rect {
-        x: 0.0,
-        y: 100.0,
-        w: 402.0,
-        h: 700.0,
-    });
-    let editor = phone_view(vec![row("n3", "Groceries"), row("n5", "Find")], webview);
+    let editor = phone_view(vec![row("n3", "Groceries"), row("n5", "Find")], true);
     let error = refused(&editor, "Groceries");
     assert!(
         error.contains("n3 \"Groceries\", the editor's line 1"),

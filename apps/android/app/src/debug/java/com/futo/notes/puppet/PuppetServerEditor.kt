@@ -54,7 +54,7 @@ internal suspend fun forward(
     return PuppetContract.refusal(404, "unknown native editor query: $command")
 }
 
-/** The page's answer to [command] as an object, or null when it gave none. */
+/** The native editor's answer to [command] as an object, or null when it gave none. */
 internal suspend fun forwardedObject(bound: Binding, command: String): JSONObject? {
     val forwarded = forward(bound, command, "{}")
     return if (forwarded.status == 200) runCatching { JSONObject(forwarded.body) }.getOrNull() else null
@@ -73,8 +73,8 @@ internal fun requireOpenEditor(screen: Screen, action: String): PuppetReply? =
     }
 
 /**
- * The editor on top of the stack has read its note from disk and handed it to
- * the WebView — before that, a write would be overwritten by the load. Waits
+ * The editor on top of the stack has read its note from disk — before that, a
+ * write would be overwritten by the load. Waits
  * up to three seconds; null when the editor is loaded or no note is open, a
  * refusal when the editor on top changed during the wait.
  */
@@ -90,7 +90,7 @@ internal suspend fun awaitEditorLoaded(bound: Binding, action: String): PuppetRe
         delay(50)
     }
     // One more turn so the recomposition that pushes the body reaches the
-    // WebView before the caller writes into it.
+    // editor before the caller writes into it.
     delay(50)
     // The request was for the editor on top when it arrived: if another took its place while
     // waiting (that note failed to open, navigation moved on), its lines name other text.

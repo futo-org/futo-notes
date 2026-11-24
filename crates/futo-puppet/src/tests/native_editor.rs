@@ -1,8 +1,8 @@
 use super::*;
 
-/// A phone listener with a native editor and no WebView. Queries still travel
-/// through the real CLI transport and screen-reading path.
-fn phone_editor(surface: &'static str, webview: bool) -> Target {
+/// A phone listener with a native editor. Queries still travel through the real CLI
+/// transport and screen-reading path.
+fn phone_editor() -> Target {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
@@ -16,14 +16,13 @@ fn phone_editor(surface: &'static str, webview: bool) -> Target {
                     200,
                     json!({
                         "screen": "editor:note", "sheet": null,
-                        "editor": {"surface": surface, "ready": true}
+                        "editor": {"surface": "native", "ready": true}
                     }),
                 ),
                 "/tree" => (
                     200,
                     json!({
                         "screen": {"w": 402, "h": 874}, "scale": 1,
-                        "webview": if webview { json!({"x": 0, "y": 100, "w": 402, "h": 500}) } else { Value::Null },
                         "nodes": [{"id": "text-first-editor", "role": "field", "text": "words",
                             "x": 0, "y": 154, "w": 402, "h": 500, "section": "editor",
                             "actions": ["tap"], "flags": ["focused"]}]
@@ -67,15 +66,15 @@ fn phone_editor(surface: &'static str, webview: bool) -> Target {
 }
 
 #[test]
-fn native_editor_document_reads_do_not_require_a_webview() {
-    let reply = query(&phone_editor("native", false), "doc", &json!({})).unwrap();
+fn native_editor_document_reads_answer() {
+    let reply = query(&phone_editor(), "doc", &json!({})).unwrap();
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.body["lines"][0]["text"], "words");
 }
 
 #[test]
 fn native_editor_geometry_is_already_in_screen_points_and_refusals_survive() {
-    let target = phone_editor("native", false);
+    let target = phone_editor();
     let shown = query(&target, "show", &json!({"text": "words"})).unwrap();
     assert_eq!(shown.status, 200, "{}", shown.body);
     assert_eq!(shown.body["rect"]["y"], 180);
@@ -89,7 +88,7 @@ fn native_editor_geometry_is_already_in_screen_points_and_refusals_survive() {
 
 #[test]
 fn native_editor_text_aims_at_its_line_not_the_whole_body_field() {
-    let target = phone_editor("native", false);
+    let target = phone_editor();
     let before = screen::view(&target).unwrap();
     let mut tap = json!({"text": "words"});
     assert!(screen::aim(&target, &before, "tap", &mut tap)
@@ -110,27 +109,8 @@ fn native_document_or_selection_changes_are_real_changes_without_dom_events() {
 }
 
 #[test]
-fn untagged_phone_editors_keep_the_existing_webview_requirement_and_offset() {
-    let native_screen = phone_editor("", false);
-    assert_eq!(
-        query(&native_screen, "doc", &json!({})).unwrap().status,
-        409
-    );
-    let webview = phone_editor("", true);
-    let shown = query(&webview, "show", &json!({"text": "words"})).unwrap();
-    assert_eq!(shown.status, 200);
-    assert_eq!(shown.body["rect"]["y"], 280);
-    let explicit_native = phone_editor("native", true);
-    let shown = query(&explicit_native, "show", &json!({"text": "words"})).unwrap();
-    assert_eq!(
-        shown.body["rect"]["y"], 180,
-        "a hidden stale WebView is not the native editor"
-    );
-}
-
-#[test]
 fn native_trace_preserves_document_receipts_without_claiming_dom_events() {
-    let target = phone_editor("native", false);
+    let target = phone_editor();
     let mut delivered = false;
     let receipt = traced(&target, || {
         delivered = true;
@@ -146,7 +126,7 @@ fn native_trace_preserves_document_receipts_without_claiming_dom_events() {
 
 #[test]
 fn native_gesture_receipts_name_the_observed_screen_after_input() {
-    let target = phone_editor("native", false);
+    let target = phone_editor();
     let before = screen::view(&target).unwrap();
     let mut after = before.clone();
     for destination in ["editor:note", "list"] {

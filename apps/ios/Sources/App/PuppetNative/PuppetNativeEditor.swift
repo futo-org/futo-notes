@@ -2,7 +2,7 @@
     import UIKit
 
     /// Debug inspection of the native renderer. It borrows the screen's controller; it never
-    /// owns an editor attachment or creates the retired WebView. Reads run only on request.
+    /// owns an editor attachment. Reads run only on request.
     @MainActor
     final class PuppetNativeEditor {
         static let shared = PuppetNativeEditor()

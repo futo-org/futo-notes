@@ -82,8 +82,8 @@ pub(crate) fn send_verb(
 type Ran = (Reply, Option<(screen::View, screen::View)>);
 
 /// One verb through [send_verb]. On a phone the receipt is the whole screen before and after
-/// (with the editor up, the page's own receipt keeps its document, selection and events, and
-/// takes the screen's element diff); on desktop the page's receipt already is.
+/// (with the editor up, the editor's own receipt keeps its document and selection, and takes
+/// the screen's element diff); on desktop the page's receipt already is.
 pub(crate) fn run_verb(
     target: &Target,
     menu: &Value,
@@ -99,21 +99,13 @@ pub(crate) fn run_verb(
         return Ok((reply, None));
     };
     let before = screen::view(target)?;
-    // A page verb speaks CSS pixels; the agent spoke screen units.
-    let mut args = args.clone();
-    if let Some((dx, dy)) = before.page_offset() {
-        screen::shift(&mut args, (-dx, -dy));
-    }
     let app_before = app::read(target)?;
-    let mut reply = send_verb(target, menu, &app_before, verb, &args, Some(&before))?;
+    let mut reply = send_verb(target, menu, &app_before, verb, args, Some(&before))?;
     if reply.status >= 400 {
         return Ok((reply, Some((before.clone(), before))));
     }
     let after = screen::settle(target, &before, before.has_editor())?;
     if reply.body["diff"].is_object() {
-        if let Some(offset) = before.page_offset() {
-            screen::shift(&mut reply.body["diff"], offset);
-        }
         screen::merge_change(&mut reply.body, &before, &after);
     } else if let Some(receipt) = reply.body.as_object_mut() {
         receipt.insert("diff".into(), screen::change(&before, &after));

@@ -71,7 +71,7 @@ pub(crate) fn call_once(target: &Target, command: &str, args: &Value) -> Result<
 }
 
 pub(crate) fn call(target: &Target, command: &str, args: &Value) -> Result<Reply, String> {
-    // 503 is the app saying "not yet" (store scanning, editor bridge loading);
+    // 503 is the app saying "not yet" (store scanning, editor loading);
     // waiting on that condition is the harness's job, not the agent's.
     let deadline = Instant::now() + NOT_READY_RETRY_WINDOW;
     loop {
@@ -80,34 +80,8 @@ pub(crate) fn call(target: &Target, command: &str, args: &Value) -> Result<Reply
             return Ok(reply);
         }
         if Instant::now() > deadline {
-            return match target {
-                Target::Native(platform, _, device) if no_inspector(&reply.body) => {
-                    Err(no_inspector_error(*platform, device))
-                }
-                _ => Ok(reply),
-            };
+            return Ok(reply);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-}
-
-/// The phone listeners' "the editor page has no `window.__futoPuppet`" refusal.
-fn no_inspector(body: &Value) -> bool {
-    body["error"]
-        .as_str()
-        .is_some_and(|error| error.contains("no puppet inspector"))
-}
-
-/// A page still without its inspector after the whole retry window is not loading: its
-/// editor.html was built without the inspector.
-fn no_inspector_error(platform: NativePlatform, device: &str) -> String {
-    let reinstall = platform.launch_command(device);
-    format!(
-        "the editor page has no puppet inspector ({}s after asking), so nothing in the editor \
-         can be read or driven. The debug app was built from an editor.html staged without \
-         VITE_INCLUDE_TEST_HOOKS=true: by a release script, `just test-android-perf`, or `vite \
-         build --config vite.editor.config.ts` run by hand.\nFix: {reinstall}   (reinstalls \
-         the debug app with the inspector in its editor bundle)",
-        NOT_READY_RETRY_WINDOW.as_secs()
-    )
 }
