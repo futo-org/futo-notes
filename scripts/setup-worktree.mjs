@@ -119,7 +119,11 @@ if (failures.length) {
   console.error(`Setup blocked before builds: ${failures.join(', ')}`);
   process.exit(1);
 }
-if (values.check) check('workspace dependencies', () => requiredFile('node_modules/.bin/vite'));
+// Mobile builds run only Node-built-in scripts, so a fresh worktree can build iOS/Android
+// without `pnpm install`; every other target needs the workspace (vite for the web build).
+const needsWorkspace = target !== 'ios' && target !== 'android';
+if (values.check && needsWorkspace)
+  check('workspace dependencies', () => requiredFile('node_modules/.bin/vite'));
 if (failures.length) {
   console.error('Run just setup to install workspace dependencies.');
   process.exit(1);

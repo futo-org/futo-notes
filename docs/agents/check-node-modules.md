@@ -6,8 +6,8 @@ A fresh worktree has no `node_modules`, and the first JS recipe `check` reaches 
 `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "tsx" not found` — an error that names a
 binary, not the missing install (pc_40406aa84bc1). Not an auto-install: `check` is a gate,
 and installing behind your back changes what it just verified. `check` deliberately does
-NOT depend on `editor-deps`, even though every other recipe `editor-deps` guards does:
-`editor-deps` self-installs (`pnpm install`) on a missing/stale `node_modules`, which is
+NOT depend on `node-deps`, even though every other recipe `node-deps` guards does:
+`node-deps` self-installs (`pnpm install`) on a missing/stale `node_modules`, which is
 exactly the behind-your-back mutation this forbids for a gate. The guard only
 refuses and tells you the command; it never runs it for you. Three independent fixes for
 this same papercut once landed on parallel MR stacks (mr-298, mr-318, mr-320); the

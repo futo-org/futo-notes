@@ -56,16 +56,6 @@ build-ios-native configuration="Debug": _preflight-ios build-rust-ios
     exit 1
   fi
 
-# Fail fast (or self-install) when the JS deps a recipe needs are absent or
-# stale — BEFORE the 10-25 minute Rust build, not after it. A fresh worktree's
-# `just check` used to die on 'Command "tsx" not found' naming tsx, and
-# `just test-ios-native` lost ~10 minutes of cold Rust builds to a missing
-# node_modules/.bin/vite (pc_40406aa84bc1, pc_7aaa5ba6c080).
-editor-deps:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  bash scripts/editor-deps.sh
-
 # Refuse in ~2s — BEFORE the 10-25 minute Rust/FFI build — when this machine
 # cannot run Gradle: no JDK 21 discoverable for Gradle's daemon-JVM pin
 # (apps/android/gradle/gradle-daemon-jvm.properties — never fix this by
@@ -98,11 +88,11 @@ android-lock: _preflight-android android-env-check
   git -C ../.. status --short -- apps/android/app/gradle.lockfile
 
 [private]
-_preflight-ios: editor-deps
+_preflight-ios:
   @bash scripts/dev-env.sh node scripts/setup-worktree.mjs ios --check
 
 [private]
-_preflight-android: editor-deps
+_preflight-android:
   @bash scripts/dev-env.sh node scripts/setup-worktree.mjs android --check
 
 # ── Native unit tests ──
@@ -268,7 +258,7 @@ test-ios-editor-stories *args:
 # the Google Play flavor instead. Needs apps/android/keystore.properties (gitignored)
 # or Gradle signs nothing; see justfile-notes.md. NOTE: kept — asserted live by
 # scripts/premerge-test-parity-mobile.test.mjs; do not remove as an unused recipe.
-deploy-android flavor="direct": editor-deps android-env-check
+deploy-android flavor="direct": android-env-check
   #!/usr/bin/env bash
   set -euo pipefail
   case '{{flavor}}' in

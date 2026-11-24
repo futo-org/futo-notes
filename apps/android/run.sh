@@ -34,11 +34,6 @@ case "$FLAVOR" in
     ;;
 esac
 
-echo "==> JS deps"
-# Presence-only check replaced by the shared guard (stale installs die before
-# the Rust build): scripts/editor-deps.sh.
-bash scripts/editor-deps.sh
-
 # hosted_server() only honors FUTO_HOSTED_SERVER in a build with
 # debug_assertions on, and the default release-ffi profile inherits release,
 # where it is compiled out — so without this, setting FUTO_HOSTED_SERVER here

@@ -21,11 +21,9 @@ const justfile = readJustfileSource(ROOT);
 describe('android environment guard wiring', () => {
   it('run.sh checks the environment before any build step', () => {
     const guardAt = runSh.indexOf('source scripts/android-env.sh');
-    const jsDepsAt = runSh.indexOf('echo "==> JS deps"');
     const rustBuildAt = runSh.indexOf('bash scripts/build-rust-android.sh');
 
     expect(guardAt).toBeGreaterThan(-1);
-    expect(guardAt).toBeLessThan(jsDepsAt);
     expect(guardAt).toBeLessThan(rustBuildAt);
   });
 

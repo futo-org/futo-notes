@@ -139,7 +139,6 @@ if ! cmp -s pnpm-lock.yaml node_modules/.pnpm/lock.yaml; then
   pnpm install --frozen-lockfile
 fi
 node scripts/check-node-modules.mjs
-just editor-deps
 CLAIMED=0
 release_device() {
   result=$?

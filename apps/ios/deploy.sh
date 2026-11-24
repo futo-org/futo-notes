@@ -28,12 +28,6 @@ UDID=$(node scripts/ios-device-id.mjs)
 TEAM=$(node scripts/ios-signing-team.mjs)
 echo "==> Signing team: $TEAM"
 
-echo "==> JS deps"
-# Presence-only ([ -d node_modules ]) is not enough: a stale install loses the
-# vite binary and used to die only AFTER the Rust build. One owner:
-# scripts/editor-deps.sh.
-bash scripts/editor-deps.sh
-
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework"
 bash "$ROOT/scripts/build-rust-ios.sh"
 

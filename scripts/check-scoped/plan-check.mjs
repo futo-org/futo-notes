@@ -8,7 +8,7 @@ const FULL_PATHS = [
   'scripts/check-scoped/repo-inputs.mjs',
   'scripts/check-scoped/step-commands.mjs',
   'scripts/format.mjs',
-  'scripts/editor-deps.mjs',
+  'scripts/node-deps.mjs',
   'scripts/lib/test-worker-budget.mjs',
   'scripts/lib/slot.mjs',
 ];

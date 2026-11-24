@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ensureWorkspaceDependencies, missingWorkspaceDependencies } from './editor-deps.mjs';
+import { ensureWorkspaceDependencies, missingWorkspaceDependencies } from './node-deps.mjs';
 
 const fixtures = [];
 
 function createFixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-deps-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'node-deps-'));
   fixtures.push(root);
   fs.writeFileSync(
     path.join(root, 'package.json'),
@@ -107,7 +107,7 @@ describe('workspace dependency preflight', () => {
 
   it('places the same preflight before direct language and full-unit scripts', () => {
     const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
-    expect(packageJson.scripts['check:languages']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
-    expect(packageJson.scripts['test:full']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
+    expect(packageJson.scripts['check:languages']).toMatch(/^node scripts\/node-deps\.mjs &&/);
+    expect(packageJson.scripts['test:full']).toMatch(/^node scripts\/node-deps\.mjs &&/);
   });
 });

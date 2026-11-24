@@ -28,7 +28,7 @@ export function commandsFor(step, fsTests) {
     case 'vitest':
       if (step.whole) return [pnpm('test:full')];
       return [
-        ['node', ['scripts/editor-deps.mjs']],
+        ['node', ['scripts/node-deps.mjs']],
         // The desktop editor's tests, fs-reading so always run, load the real engine.
         ['node', ['scripts/build-editor-wasm.mjs']],
         [

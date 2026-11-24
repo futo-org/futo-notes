@@ -74,6 +74,14 @@ it('Android preflight accepts the installed pinned NDK without ANDROID_NDK_HOME'
   expect(result.stdout).toContain(`OK Android NDK pin: ${pin}`);
 });
 
+it('Android preflight does not require workspace node_modules (mobile builds use no npm package)', () => {
+  const state = fixture();
+  fs.rmSync(path.join(state.directory, 'node_modules'), { recursive: true, force: true });
+  const result = preflight(state);
+  expect(result.stderr).toBe('');
+  expect(result.status).toBe(0);
+});
+
 it.each(['ANDROID_SDK_ROOT', 'default location'])(
   'Android preflight discovers the SDK through %s',
   (source) => {

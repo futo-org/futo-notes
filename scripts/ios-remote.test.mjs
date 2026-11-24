@@ -154,6 +154,5 @@ it.each(['same', 'changed', 'missing', 'failed'])(
     expect(result.status, result.stderr).toBe(state === 'failed' ? 42 : 0);
     expect(result.stdout.includes('pnpm install --frozen-lockfile')).toBe(state !== 'same');
     expect(result.stdout.includes('node scripts/check-node-modules.mjs')).toBe(state !== 'failed');
-    expect(result.stdout.includes('just editor-deps')).toBe(state !== 'failed');
   },
 );

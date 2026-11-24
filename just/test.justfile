@@ -7,8 +7,17 @@ build: check-node-version _require-node-modules
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
+# Fail fast (or self-install) when the workspace JS deps the test recipes need (vite for vitest,
+# ajv for the language checks, ws for the sync harness) are absent or stale: a fresh worktree's
+# `just check` used to die on 'Command "tsx" not found' (pc_40406aa84bc1, pc_7aaa5ba6c080).
+# Mobile builds don't depend on it: every node script they run uses only Node built-ins.
+node-deps:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bash scripts/node-deps.sh
+
 # Every vitest test (app, editor package, scripts); pass files, folders or -t <name> to run only those.
-test-unit *args: editor-deps
+test-unit *args: node-deps
   node scripts/build-editor-wasm.mjs
   node_modules/.bin/vitest run "$@"
 
@@ -33,7 +42,7 @@ test-e2e-rest:
   pnpm run test:e2e:rest
 
 # Cross-platform E2EE sync against the pinned sync-server release.
-test-cross-platform *args: editor-deps
+test-cross-platform *args: node-deps
   pnpm run test:cross-platform "$@"
 
 # The Rust server-backed sync suites against REAL servers (two server modes); see justfile-notes.md.

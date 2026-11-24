@@ -24,12 +24,6 @@ if [ -z "$SIM" ]; then
 fi
 echo "==> Simulator: $SIM"
 
-echo "==> JS deps"
-# Presence-only ([ -d node_modules ]) is not enough: a stale install loses the
-# vite binary and used to die only AFTER the Rust build. One owner:
-# scripts/editor-deps.sh.
-bash scripts/editor-deps.sh
-
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework + Swift bindings"
 FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash scripts/build-rust-ios.sh
 
