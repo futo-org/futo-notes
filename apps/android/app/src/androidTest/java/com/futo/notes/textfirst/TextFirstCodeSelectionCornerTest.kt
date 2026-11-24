@@ -53,10 +53,11 @@ class TextFirstCodeSelectionCornerTest {
         val x = view.totalPaddingLeft + l.getPrimaryHorizontal(start).toInt()
         val y = view.totalPaddingTop - view.scrollY + top.toInt()
         val inside = view.totalPaddingTop - view.scrollY + l.getLineBaseline(line) - 6
-        fun pixels(): Pair<Int, Int> {
+        // The text's row left of where the run starts, not one pixel of it: one can sit on a glyph stem, black selected or not.
+        fun pixels(): Pair<Int, List<Int>> {
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
-            return bitmap.getPixel(x - 2, y + 1) to bitmap.getPixel(x - 30, inside)
+            return bitmap.getPixel(x - 2, y + 1) to (4..60).map { bitmap.getPixel(x - it, inside) }
         }
         val (cornerBefore, textBefore) = pixels()
         c.select(start, end)
