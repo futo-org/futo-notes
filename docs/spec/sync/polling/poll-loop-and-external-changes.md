@@ -13,13 +13,16 @@
   handshake is paid once per session rather than once per cycle) and writes
   nothing to disk (`checkpoint::save` leaves `.e2ee-state.json` alone when its
   bytes already match; a changed, torn, or missing file is still written).
+  The two checkpoint maps are serialized in path order, so a reload preserves
+  byte equality for an unchanged checkpoint.
   Independent sessions never share a pool, so unrelated async runtimes do not
   accidentally share transport state. The release journal measured the old
   per-cycle handshake at ~350 ms p50 over 17k cycles, and the old double
   checkpoint rewrite at ~1.8 MB per idle cycle on a 2.5k-note vault.
   Regression-guarded by `one_http_owner_reuses_its_connection`,
-  `independent_http_owners_do_not_share_connections`, and
-  `save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`.
+  `independent_http_owners_do_not_share_connections`,
+  `save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`, and
+  `checkpoint_maps_serialize_in_path_order_and_stay_untouched_after_reload`.
   → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`; historical
   measurement in `docs/perf/sync-cycle-and-save-baseline.md`
 

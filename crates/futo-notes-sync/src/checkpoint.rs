@@ -1,10 +1,11 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use futo_notes_core::files::vault_fs;
 use futo_notes_core::files::write_atomic_text;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 const STATE_FILE: &str = ".e2ee-state.json";
 const ANCESTRY_FILE: &str = ".e2ee-ancestry.json";
@@ -94,19 +95,32 @@ impl ConnectedState {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-struct DiskState {
+struct DiskState<'state> {
     #[serde(default = "format_version")]
     version: u8,
-    #[serde(default)]
-    object_map: HashMap<String, ObjectState>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pending_creates: HashMap<String, PendingCreate>,
+    #[serde(default, serialize_with = "serialize_path_ordered_map")]
+    object_map: Cow<'state, HashMap<String, ObjectState>>,
+    #[serde(
+        default,
+        skip_serializing_if = "HashMap::is_empty",
+        serialize_with = "serialize_path_ordered_map"
+    )]
+    pending_creates: Cow<'state, HashMap<String, PendingCreate>>,
     #[serde(default)]
     max_version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pull_cursor: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    collection_id: Option<String>,
+    collection_id: Option<Cow<'state, str>>,
+}
+
+fn serialize_path_ordered_map<Value: Serialize, Output: Serializer>(
+    map: &HashMap<String, Value>,
+    serializer: Output,
+) -> Result<Output::Ok, Output::Error> {
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_unstable_by_key(|(name, _)| *name);
+    serializer.collect_map(entries)
 }
 
 fn format_version() -> u8 {
@@ -142,12 +156,12 @@ fn ancestry_path(root: &Path) -> PathBuf {
     root.join(ANCESTRY_FILE)
 }
 
-fn read_disk_state(root: &Path) -> Option<DiskState> {
+fn read_disk_state(root: &Path) -> Option<DiskState<'static>> {
     let raw = std::fs::read_to_string(state_path(root)).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
-fn read_legacy(root: &Path) -> Option<DiskState> {
+fn read_legacy(root: &Path) -> Option<DiskState<'static>> {
     let raw = std::fs::read_to_string(root.join(".app-state.json")).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let map = value.get("e2eeObjectMap")?.as_object()?;
@@ -161,8 +175,8 @@ fn read_legacy(root: &Path) -> Option<DiskState> {
         .collect();
     Some(DiskState {
         version: 1,
-        object_map,
-        pending_creates: HashMap::new(),
+        object_map: Cow::Owned(object_map),
+        pending_creates: Cow::default(),
         max_version: value
             .get("e2eeMaxVersion")
             .and_then(serde_json::Value::as_u64)
@@ -171,7 +185,7 @@ fn read_legacy(root: &Path) -> Option<DiskState> {
         collection_id: value
             .get("e2eeCollectionId")
             .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+            .map(|collection_id| Cow::Owned(collection_id.to_owned())),
     })
 }
 
@@ -186,8 +200,8 @@ pub(crate) fn load(root: &Path, collection_id: &str) -> Loaded {
         return Loaded::default();
     }
     Loaded {
-        object_map: disk.object_map,
-        pending_creates: disk.pending_creates,
+        object_map: disk.object_map.into_owned(),
+        pending_creates: disk.pending_creates.into_owned(),
         max_version: disk.max_version,
         pull_cursor: disk.pull_cursor.unwrap_or(0),
     }
@@ -196,11 +210,11 @@ pub(crate) fn load(root: &Path, collection_id: &str) -> Loaded {
 pub(crate) fn save(root: &Path, state: &ConnectedState) -> Result<(), String> {
     let disk = DiskState {
         version: 1,
-        object_map: state.object_map.clone(),
-        pending_creates: state.pending_creates.clone(),
+        object_map: Cow::Borrowed(&state.object_map),
+        pending_creates: Cow::Borrowed(&state.pending_creates),
         max_version: state.max_version,
         pull_cursor: Some(state.pull_cursor),
-        collection_id: Some(state.collection_id.clone()),
+        collection_id: Some(Cow::Borrowed(&state.collection_id)),
     };
     let json = serde_json::to_string_pretty(&disk).map_err(|e| e.to_string())?;
     let path = state_path(root);
@@ -256,7 +270,7 @@ pub fn demote(root: &Path) -> Result<(), String> {
     let Some(disk) = read_disk_state(root) else {
         return Ok(());
     };
-    let files = ancestry_from_object_map(disk.object_map);
+    let files = ancestry_from_object_map(disk.object_map.into_owned());
     let ancestry = serde_json::to_string_pretty(&DiskAncestry { version: 1, files })
         .map_err(|e| e.to_string())?;
     // Ancestry is best-effort. Keeping the live map after disconnect is the

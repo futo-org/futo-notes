@@ -103,6 +103,46 @@ fn save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference() {
 }
 
 #[test]
+fn checkpoint_maps_serialize_in_path_order_and_stay_untouched_after_reload() {
+    let root = TempRoot::new();
+    let mut current = state("collection-a");
+    current.object_map.clear();
+    let names: Vec<_> = (0..16).map(|index| format!("note-{index:02}.md")).collect();
+    for name in names.iter().rev() {
+        current.object_map.insert(name.clone(), entry(name));
+        let pending_name = format!("pending-{name}");
+        current.pending_creates.insert(
+            pending_name.clone(),
+            PendingCreate {
+                mutation_id: name.clone(),
+                original_name: pending_name,
+                hash: "hash".into(),
+                size_bytes: 42,
+            },
+        );
+    }
+    save(root.path(), &current).unwrap();
+    let path = state_path(root.path());
+    let json = std::fs::read_to_string(&path).unwrap();
+    for prefix in ["", "pending-"] {
+        assert!(names
+            .iter()
+            .map(|name| json.find(&format!("\"{prefix}{name}\":")).unwrap())
+            .is_sorted());
+    }
+
+    let checkpoint = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    checkpoint.set_modified(std::time::UNIX_EPOCH).unwrap();
+    let written = file_identity(&path);
+    let loaded = load(root.path(), "collection-a");
+    current.object_map = loaded.object_map;
+    current.pending_creates = loaded.pending_creates;
+    save(root.path(), &current).unwrap();
+
+    assert_eq!(file_identity(&path), written);
+}
+
+#[test]
 fn state_round_trips_both_watermarks() {
     let root = TempRoot::new();
     save(root.path(), &state("col-1")).unwrap();
