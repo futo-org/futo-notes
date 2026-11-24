@@ -108,6 +108,8 @@ fn a_pulled_rename_whose_target_cannot_be_written_keeps_the_old_note() {
         std::fs::read_to_string(root.path().join("old.md")).unwrap(),
         "body"
     );
+    // No unmapped duplicate was left at the target.
+    assert!(!root.path().join("locked/new.md").exists());
     assert!(moves_in(&root).is_empty());
     // Still the mapped object: unmapped, the next push uploaded it as a new
     // note on every device. Nothing about the move is reported yet.

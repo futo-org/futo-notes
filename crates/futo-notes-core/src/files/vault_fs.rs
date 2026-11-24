@@ -95,146 +95,11 @@ pub(crate) fn refused_create<E>(refusal: E) -> Result<(), E> {
     Ok(())
 }
 
+mod write_refusal;
+pub use write_refusal::check_removable;
 #[cfg(any(test, feature = "test-support"))]
-thread_local! {
-    static READ_ONLY_FOLDERS: std::cell::RefCell<Vec<std::path::PathBuf>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Makes every create, write, remove and move directly inside `folder` (an
-/// absolute path) fail on this thread as the OS refusing it, until
-/// [`allow_writes_in`]. A mode 0555 folder does that for a normal user, but
-/// root ignores permission bits and Windows has no bit that does, so a test
-/// built on one runs on neither (the Linux CI runs as root).
-///
-/// The refusal is decided before the operation runs: an armed operation never
-/// reaches the platform code and changes nothing on disk. Every operand is
-/// validated first, so a bad path reports its own error, not a denial. What a
-/// real read-only folder lets through stays allowed: `create_dir_all` of
-/// folders that exist, and a no-replace move onto a name already there (the OS
-/// answers "exists" before it checks permission; looked up once, which is
-/// enough for a single-threaded test). Nothing here touches the filesystem
-/// while no folder is refused.
-#[cfg(any(test, feature = "test-support"))]
-pub fn refuse_writes_in(folder: &Path) {
-    READ_ONLY_FOLDERS.with(|folders| folders.borrow_mut().push(folder.to_owned()));
-}
-
-/// Ends [`refuse_writes_in`] for `folder`.
-#[cfg(any(test, feature = "test-support"))]
-pub fn allow_writes_in(folder: &Path) {
-    READ_ONLY_FOLDERS.with(|folders| folders.borrow_mut().retain(|locked| locked != folder));
-}
-
-/// Whether [`refuse_writes_in`] locked the folder that directly holds `name`.
-/// Pure path arithmetic, and `false` at once while nothing is refused.
-#[cfg(any(test, feature = "test-support"))]
-fn is_refused(root: &Path, name: &str) -> bool {
-    READ_ONLY_FOLDERS.with(|folders| {
-        let folders = folders.borrow();
-        !folders.is_empty()
-            && root
-                .join(name)
-                .parent()
-                .is_some_and(|parent| folders.iter().any(|locked| locked == parent))
-    })
-}
-
-/// Validates every operand, so a bad path reports its own error, then denies
-/// `operation` on `name` as a refusing folder does.
-#[cfg(any(test, feature = "test-support"))]
-fn deny(root: &Path, operation: &str, name: &str, operands: &[&str]) -> String {
-    for operand in operands {
-        if let Err(invalid) = validate_path(root, operand) {
-            return invalid;
-        }
-    }
-    context(
-        operation,
-        name,
-        std::io::Error::from(std::io::ErrorKind::PermissionDenied),
-    )
-}
-
-/// Fails `operation` before it runs when [`refuse_writes_in`] locked the folder
-/// that holds any of `names`. Always `Ok` outside tests.
-#[cfg(any(test, feature = "test-support"))]
-fn writable(root: &Path, operation: &str, names: &[&str]) -> Result<(), String> {
-    match names.iter().find(|name| is_refused(root, name)) {
-        Some(name) => Err(deny(root, operation, name, names)),
-        None => Ok(()),
-    }
-}
-
-#[cfg(not(any(test, feature = "test-support")))]
-#[inline(always)]
-fn writable(_root: &Path, _operation: &str, _names: &[&str]) -> Result<(), String> {
-    Ok(())
-}
-
-/// Fails [`create_dir_all`] of `relative` before it runs when any folder it
-/// would create lies directly inside a refused one (`locked/new/sub` creates
-/// `locked/new`). Folders that exist are not created.
-#[cfg(any(test, feature = "test-support"))]
-fn check_dir_creation(root: &Path, relative: &str) -> Result<(), String> {
-    for prefix in Path::new(relative).ancestors() {
-        let Some(name) = prefix.to_str().filter(|name| !name.is_empty()) else {
-            continue;
-        };
-        if is_refused(root, name) {
-            validate_path(root, relative)?;
-            if !platform::exists(root, name)? {
-                return Err(deny(root, "create directory", name, &[relative]));
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(any(test, feature = "test-support")))]
-#[inline(always)]
-fn check_dir_creation(_root: &Path, _relative: &str) -> Result<(), String> {
-    Ok(())
-}
-
-/// [`writable`] for a caller outside this module that removes `relative` with
-/// its own filesystem call instead of [`remove`]. Always `Ok` outside tests.
-#[cfg(any(test, feature = "test-support"))]
-pub fn check_removable(root: &Path, relative: &str) -> Result<(), String> {
-    writable(root, "remove", &[relative])
-}
-
-#[cfg(not(any(test, feature = "test-support")))]
-#[inline(always)]
-pub fn check_removable(_root: &Path, _relative: &str) -> Result<(), String> {
-    Ok(())
-}
-
-/// The answer a no-replace move gets from a refused folder, without running:
-/// `Some(false)` when `destination` already exists (the OS says "exists" before
-/// it checks permission), an error when either folder refuses, `None` to run
-/// the move. Always `None` outside tests.
-#[cfg(any(test, feature = "test-support"))]
-fn refuse_move(root: &Path, source: &str, destination: &str) -> Result<Option<bool>, String> {
-    let operands = [source, destination];
-    if !operands.iter().any(|name| is_refused(root, name)) {
-        return Ok(None);
-    }
-    for operand in operands {
-        validate_path(root, operand)?;
-    }
-    if platform::exists(root, destination)? {
-        return Ok(Some(false));
-    }
-    writable(root, "move", &operands)?;
-    Ok(None)
-}
-
-#[cfg(not(any(test, feature = "test-support")))]
-#[inline(always)]
-fn refuse_move(_root: &Path, _source: &str, _destination: &str) -> Result<Option<bool>, String> {
-    Ok(None)
-}
+pub use write_refusal::{allow_writes_in, refuse_writes_in};
+use write_refusal::{check_dir_creation, refuse_move, writable, writable_creating, writable_tree};
 
 pub fn access_refused() -> bool {
     ACCESS_REFUSED.load(Ordering::Relaxed)
@@ -338,7 +203,7 @@ pub fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
-    writable(root, "write", &[relative])?;
+    writable_creating(root, "write", &[relative], relative)?;
     platform::write_atomic(root, relative, bytes)
 }
 
@@ -348,7 +213,7 @@ pub fn remove(root: &Path, relative: &str) -> Result<bool, String> {
 }
 
 pub fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
-    writable(root, "move", &[source, destination])?;
+    writable_creating(root, "move", &[source, destination], destination)?;
     platform::rename(root, source, destination)
 }
 
@@ -414,7 +279,7 @@ pub fn open_optional(root: &Path, relative: &str) -> Result<Option<std::fs::File
     platform::open_optional(root, relative)
 }
 pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
-    writable(root, "create", &[relative])?;
+    writable_creating(root, "create", &[relative], relative)?;
     platform::create_new(root, relative, bytes)
 }
 /// Exclusive install for an existing note's dirty draft. A removed or moved
@@ -429,11 +294,11 @@ pub fn create_new_in_existing_parent(
 }
 /// Exclusive install with strict directory durability, used by sync's required-absent paths.
 pub fn create_new_strict(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
-    writable(root, "create", &[relative])?;
+    writable_creating(root, "create", &[relative], relative)?;
     platform::create_new_strict(root, relative, bytes)
 }
 pub fn move_no_replace(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
-    if let Some(moved) = refuse_move(root, source, destination)? {
+    if let Some(moved) = refuse_move(root, source, destination, true)? {
         return Ok(moved);
     }
     platform::move_no_replace(root, source, destination)
@@ -444,7 +309,7 @@ pub fn move_no_replace_in_existing_parent(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
-    if let Some(moved) = refuse_move(root, source, destination)? {
+    if let Some(moved) = refuse_move(root, source, destination, false)? {
         return Ok(moved);
     }
     platform::move_no_replace_in_existing_parent(root, source, destination)
@@ -454,19 +319,18 @@ pub fn move_no_replace_strict(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
-    if let Some(moved) = refuse_move(root, source, destination)? {
+    if let Some(moved) = refuse_move(root, source, destination, true)? {
         return Ok(moved);
     }
     platform::move_no_replace_strict(root, source, destination)
 }
 pub fn create_dir_all(root: &Path, relative: &str) -> Result<(), String> {
-    // Only a missing immediate child is refused; one that exists is a no-op.
     check_dir_creation(root, relative)?;
     platform::create_dir_all(root, relative)
 }
 
 pub fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), String> {
-    writable(root, "move", &[source, destination])?;
+    writable_creating(root, "move", &[source, destination], destination)?;
     platform::rename_case(root, source, destination)
 }
 
@@ -500,7 +364,7 @@ impl From<WriteError> for String {
 /// directory fsync at all, which is tolerated. Sync uses `write_atomic` and
 /// retains strict journal durability, unsupported included.
 pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), WriteError> {
-    writable(root, "write", &[relative]).map_err(WriteError::Failed)?;
+    writable_creating(root, "write", &[relative], relative).map_err(WriteError::Failed)?;
     platform::write_atomic_local(root, relative, bytes)
 }
 /// Replace an editor draft without recreating a parent moved outside the app.
@@ -518,9 +382,13 @@ pub fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
 }
 pub fn remove_dir(root: &Path, relative: &str, recursive: bool) -> Result<(), String> {
     writable(root, "remove directory", &[relative])?;
+    if recursive {
+        writable_tree(root, "remove directory", relative)?;
+    }
     platform::remove_dir(root, relative, recursive)
 }
 pub fn clear(root: &Path) -> Result<(), String> {
+    writable_tree(root, "remove", "")?;
     platform::clear(root)
 }
 
@@ -529,6 +397,6 @@ pub fn remove_local(root: &Path, relative: &str) -> Result<bool, String> {
     platform::remove_local(root, relative)
 }
 pub fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
-    writable(root, "move", &[source, destination])?;
+    writable_creating(root, "move", &[source, destination], destination)?;
     platform::rename_local(root, source, destination)
 }

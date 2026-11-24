@@ -36,28 +36,17 @@ fn disk_state(root: &std::path::Path) -> Vec<String> {
     out
 }
 
-/// The hook behind `refuse_writes_in` is decided before an operation runs, so
-/// a refused one changes nothing, and it does not depend on the uid or the
-/// platform (root and Windows ignore the mode bits it stands in for).
-#[test]
-fn a_folder_that_refuses_writes_refuses_every_change_inside_it_and_changes_nothing() {
+/// Every public write path aimed at the refused `locked` folder, with the
+/// result each gave. `locked` holds `note.md` and an empty `empty`; `open` holds
+/// `note.md`.
+fn refused_operations(root: &std::path::Path) -> Vec<(&'static str, Result<(), String>)> {
     use crate::files::vault_fs::{
-        allow_writes_in, create_dir, create_dir_all, create_new, create_new_in_existing_parent,
+        clear, create_dir, create_dir_all, create_new, create_new_in_existing_parent,
         create_new_strict, move_no_replace, move_no_replace_in_existing_parent,
-        move_no_replace_strict, read, refuse_writes_in, remove, remove_dir, remove_local, rename,
-        rename_case, rename_local, write_atomic, write_atomic_local,
-        write_atomic_local_in_existing_parent,
+        move_no_replace_strict, remove, remove_dir, remove_local, rename, rename_case,
+        rename_local, write_atomic, write_atomic_local, write_atomic_local_in_existing_parent,
     };
-    let root = tempfile::tempdir().unwrap();
-    let root = root.path();
-    write_atomic(root, "locked/note.md", b"body").unwrap();
-    write_atomic(root, "open/note.md", b"body").unwrap();
-    std::fs::create_dir(root.join("locked/empty")).unwrap();
-    let locked = root.join("locked");
-    refuse_writes_in(&locked);
-    let before = disk_state(root);
-
-    let refused: Vec<(&str, Result<(), String>)> = vec![
+    vec![
         ("write", write_atomic(root, "locked/note.md", b"new")),
         ("write new", write_atomic(root, "locked/other.md", b"new")),
         (
@@ -131,8 +120,48 @@ fn a_folder_that_refuses_writes_refuses_every_change_inside_it_and_changes_nothi
             create_dir_all(root, "locked/new/sub"),
         ),
         ("remove folder", remove_dir(root, "locked/empty", false)),
-    ];
-    for (what, result) in refused {
+        // A write or move into a missing folder creates that folder first.
+        (
+            "write below new folder",
+            write_atomic(root, "locked/new/note.md", b"new"),
+        ),
+        (
+            "create below new folder",
+            create_new(root, "locked/new/note.md", b"new").map(drop),
+        ),
+        (
+            "rename below new folder",
+            rename(root, "open/note.md", "locked/new/note.md").map(drop),
+        ),
+        (
+            "move below new folder",
+            move_no_replace(root, "open/note.md", "locked/new/note.md").map(drop),
+        ),
+        // A recursive removal deletes the entries inside the refused folder.
+        ("remove tree", remove_dir(root, "locked", true)),
+        ("clear", clear(root)),
+    ]
+}
+
+/// The hook behind `refuse_writes_in` is decided before an operation runs, so
+/// a refused one changes nothing, and it does not depend on the uid or the
+/// platform (root and Windows ignore the mode bits it stands in for).
+#[test]
+fn a_folder_that_refuses_writes_refuses_every_change_inside_it_and_changes_nothing() {
+    use crate::files::vault_fs::{
+        allow_writes_in, create_dir_all, create_new, move_no_replace, read, refuse_writes_in,
+        remove, rename, write_atomic,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    write_atomic(root, "locked/note.md", b"body").unwrap();
+    write_atomic(root, "open/note.md", b"body").unwrap();
+    std::fs::create_dir(root.join("locked/empty")).unwrap();
+    let locked = root.join("locked");
+    refuse_writes_in(&locked);
+    let before = disk_state(root);
+
+    for (what, result) in refused_operations(root) {
         let error = result.unwrap_err();
         assert!(error.contains("ermission denied"), "{what}: {error}");
         assert_eq!(disk_state(root), before, "{what} changed the disk");
@@ -191,4 +220,62 @@ fn a_symlink_operand_is_reported_as_one_not_as_a_denial() {
     assert!(error.contains("symlink"), "{error}");
     assert_eq!(disk_state(root), before);
     allow_writes_in(&root.join("locked"));
+}
+
+/// A folder is matched as the platform resolves it, not by how it is spelled:
+/// `sub/../locked` is `locked` (and `LOCKED` is too on a case-insensitive
+/// volume), while a different folder stays writable.
+#[test]
+fn a_refused_folder_is_matched_by_what_it_resolves_to_not_by_spelling() {
+    use crate::files::vault_fs::{allow_writes_in, refuse_writes_in, write_atomic};
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    std::fs::create_dir_all(root.join("locked")).unwrap();
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::create_dir_all(root.join("other")).unwrap();
+    let respelled = root.join("sub/../locked");
+    refuse_writes_in(&respelled);
+
+    let error = write_atomic(root, "locked/note.md", b"new").unwrap_err();
+    assert!(error.contains("ermission denied"), "{error}");
+    write_atomic(root, "other/note.md", b"new").unwrap();
+    if root.join("LOCKED").is_dir() {
+        // Case-insensitive volume: the other spelling is the same folder.
+        let error = write_atomic(root, "LOCKED/note.md", b"new").unwrap_err();
+        assert!(error.contains("ermission denied"), "{error}");
+    }
+    allow_writes_in(&respelled);
+    // `allow_writes_in` ends the refusal by the spelling it was given.
+    write_atomic(root, "locked/note.md", b"new").unwrap();
+}
+
+/// The strongest check that a refused operation never ran: a queued directory
+/// sync fault, which every platform write and lookup that syncs would consume,
+/// is still queued after every refusal.
+#[cfg(unix)]
+#[test]
+fn a_refused_operation_never_reaches_the_platform_code() {
+    use crate::files::vault_fs::{
+        allow_writes_in, fail_directory_sync_on_call, move_no_replace, refuse_writes_in,
+        write_atomic,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    write_atomic(root, "locked/note.md", b"body").unwrap();
+    write_atomic(root, "open/note.md", b"body").unwrap();
+    std::fs::create_dir(root.join("locked/empty")).unwrap();
+    let locked = root.join("locked");
+    refuse_writes_in(&locked);
+    fail_directory_sync_on_call(1);
+
+    for (what, result) in refused_operations(root) {
+        let error = result.unwrap_err();
+        assert!(error.contains("ermission denied"), "{what}: {error}");
+    }
+    // The "exists" answer is a plain lookup too.
+    assert!(!move_no_replace(root, "open/note.md", "locked/note.md").unwrap());
+
+    allow_writes_in(&locked);
+    let error = write_atomic(root, "open/next.md", b"new").unwrap_err();
+    assert!(error.contains("injected directory sync failure"), "{error}");
 }

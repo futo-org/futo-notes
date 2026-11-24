@@ -259,9 +259,14 @@ fn a_failed_backup_unlink_in_the_guard_retains_the_sidecar() {
         root.0.join(".sf-bak-1-1-1.path").exists(),
         "sidecar retained when the backup unlink failed"
     );
+    // The warning names the backup unlink the folder refused, not a re-park:
+    // the recovery found the note already parked and reached the cleanup.
     assert!(
-        result.warnings.iter().any(|w| w.contains("recovered note")),
-        "the failed cleanup is surfaced, not silently swallowed"
+        result.warnings.iter().any(|w| {
+            w.contains("recovered note") && w.contains("remove vault path .sf-bak-1-1-1")
+        }),
+        "the failed cleanup is surfaced, not silently swallowed: {:?}",
+        result.warnings
     );
 }
 
