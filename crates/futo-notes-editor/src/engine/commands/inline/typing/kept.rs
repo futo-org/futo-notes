@@ -71,16 +71,18 @@ impl Engine {
         // Innermost first: a closing mark before the others it nests in.
         spans.sort_by_key(|(_, close)| close.start);
         for (open, close) in &spans {
+            // Both runs are measured before either moves: moving the
+            // trailing run puts the closing mark left of `close.start`.
             let content = &text[open.end..close.start];
-            let trailing = content.len() - content.trim_end().len();
-            if trailing > 0 && trailing < content.len() {
+            let len = content.len();
+            let trailing = len - content.trim_end().len();
+            let leading = len - content.trim_start().len();
+            if trailing > 0 && trailing < len {
                 let spaces = text[close.start - trailing..close.start].to_owned();
                 text.insert_str(close.end, &spaces);
                 text.replace_range(close.start - trailing..close.start, "");
             }
-            let content = &text[open.end..close.start];
-            let leading = content.len() - content.trim_start().len();
-            if leading > 0 && leading < content.len() {
+            if leading > 0 && leading < len {
                 let spaces = text[open.end..open.end + leading].to_owned();
                 text.replace_range(open.end..open.end + leading, "");
                 text.insert_str(open.start, &spaces);

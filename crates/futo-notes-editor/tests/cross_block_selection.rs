@@ -437,3 +437,47 @@ fn a_kept_word_after_a_fence_stays_after_the_block() {
         assert_eq!(kept.as_deref(), Ok(note), "{note:?}");
     }
 }
+
+/// An unclosed fence line is hidden, and a note's lines may end `\r\n`: a
+/// range over the lines around it maps to a source range that never runs
+/// backwards. Every input over every range of these notes is accepted or
+/// refused whole, never a panic, and Undo restores the note.
+#[test]
+fn a_range_over_a_lone_fence_in_a_crlf_note_never_runs_backwards() {
+    let mut inputs = Input::ALL.to_vec();
+    inputs.extend([
+        Input::Os("x"),
+        Input::Kept,
+        Input::Fixed,
+        Input::Tail,
+        Input::Many,
+    ]);
+    for note in [
+        "a\n```\nc\r\n",
+        "\r\n```\r\na\r\n",
+        "d\n\r\n~~~\r\nc\r\n",
+        "#  ```\n```\n#![\r\n",
+        "a\r\n```\r\nb\nc\r\n",
+    ] {
+        let shown = EditorSession::open(note).display_text();
+        for a in (0..=shown.len()).filter(|&at| shown.is_char_boundary(at)) {
+            for b in (a..=shown.len()).filter(|&at| shown.is_char_boundary(at)) {
+                for input in &inputs {
+                    let mut s = EditorSession::open(note);
+                    let label = format!("{input:?} over [{a},{b}) of {note:?}");
+                    if apply(&mut s, range(a, b), *input).is_err() {
+                        assert_eq!(s.source_text(), note, "{label}");
+                        continue;
+                    }
+                    let source = s.source_text();
+                    let reopened = EditorSession::open(&source).display_text();
+                    assert_eq!(s.display_text(), reopened, "{label}");
+                    if source != note {
+                        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+                        assert_eq!(s.source_text(), note, "{label}: Undo");
+                    }
+                }
+            }
+        }
+    }
+}

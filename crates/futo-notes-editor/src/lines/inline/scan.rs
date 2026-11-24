@@ -19,8 +19,11 @@ pub(super) fn scan(
     let mut wikilinks = wikilinks.into_iter().peekable();
     let mut links: Vec<Range<usize>> = Vec::new();
     let mut images: Vec<Range<usize>> = Vec::new();
-    // Open brackets: position, whether `![`, whether still active.
-    let mut openers: Vec<(usize, bool, bool)> = Vec::new();
+    // Open brackets: position and whether `![`. A link ends the reach of
+    // every `[` still open before it (links do not nest), so those are the
+    // openers below `dead`: no list is walked to say so.
+    let mut openers: Vec<(usize, bool)> = Vec::new();
+    let mut dead = 0;
     let mut i = 0;
     while i < n {
         while wikilinks.peek().is_some_and(|link| link.start < i) {
@@ -44,28 +47,27 @@ pub(super) fn scan(
             b'!' if bytes.get(i + 1) == Some(&b'[')
                 && !wikilinks.peek().is_some_and(|link| link.start == i + 1) =>
             {
-                openers.push((i, true, true));
+                openers.push((i, true));
                 i += 2;
             }
             b'[' => {
-                openers.push((i, false, true));
+                openers.push((i, false));
                 i += 1;
             }
             b']' => {
                 let found = match openers.pop() {
-                    Some((at, image, true)) => {
+                    Some((at, image)) if image || openers.len() >= dead => {
                         inline_link(text, i + 1).map(|link| (at, image, link))
                     }
                     _ => None,
                 };
+                dead = dead.min(openers.len());
                 let Some((at, image, (end, destination, title))) = found else {
                     i += 1;
                     continue;
                 };
                 if !image {
-                    for opener in openers.iter_mut().filter(|opener| !opener.1) {
-                        opener.2 = false;
-                    }
+                    dead = openers.len();
                 }
                 let link = Bracketed {
                     at,
@@ -224,16 +226,15 @@ pub(super) fn code_span(text: &str, start: usize, run: usize, close: usize) -> S
 /// A CommonMark autolink `<scheme:…>` or `<address>` at `at`: its end and
 /// destination.
 pub(super) fn autolink(text: &str, at: usize) -> Option<(usize, String)> {
+    // The first `>` closes it unless a byte an address cannot hold comes
+    // first, so stop there: a line of `<` with no `>` near costs each `<`
+    // only its own stretch.
     let rest = &text[at + 1..];
-    let close = rest.find('>')?;
+    let close = rest
+        .bytes()
+        .position(|b| matches!(b, b'>' | b'<' | b' ') || b.is_ascii_control())
+        .filter(|&close| close > 0 && rest.as_bytes()[close] == b'>')?;
     let inner = &rest[..close];
-    if inner.is_empty()
-        || inner
-            .bytes()
-            .any(|b| b == b'<' || b == b' ' || b.is_ascii_control())
-    {
-        return None;
-    }
     let end = at + 1 + close + 1;
     let scheme = inner.split(':').next().unwrap_or("");
     if inner.contains(':')

@@ -141,11 +141,7 @@ fn read_text(text: &str) -> Vec<Span> {
 
     let (mut links, images) = scan(text, &mut taken, &mut spans);
     // An image is one unit: nothing inside it is read.
-    let inside_image = |range: &Range<usize>| {
-        images
-            .iter()
-            .any(|image| image.start <= range.start && range.end <= image.end && image != range)
-    };
+    let inside_image = inside_any(&images);
     spans.retain(|span| !inside_image(&span.range));
     links.retain(|label| !inside_image(label));
     for image in &images {
@@ -153,7 +149,7 @@ fn read_text(text: &str) -> Vec<Span> {
     }
 
     // Bare URLs and addresses, outside links and everything above.
-    for (start, end) in free_runs(&taken, |at| links.iter().any(|label| label.contains(&at))) {
+    for (start, end) in free_runs(&taken, &links) {
         for (from, to, kind) in literals(text, start, end) {
             taken[from..to].fill(Taken::Url);
             spans.push(Span {
@@ -168,11 +164,14 @@ fn read_text(text: &str) -> Vec<Span> {
     }
 
     // Emphasis and strikethrough; marks inside a link's text pair only there.
+    // Link labels do not overlap, so the first holding a byte is found by
+    // search: the labels are in order.
     let region = |at: usize| {
-        links
-            .iter()
-            .position(|label| label.contains(&at))
-            .map_or(0, |index| index + 1)
+        let after = links.partition_point(|label| label.start <= at);
+        match after.checked_sub(1) {
+            Some(index) if links[index].contains(&at) => index + 1,
+            _ => 0,
+        }
     };
     let mut delimiters: Vec<Delimiter> = Vec::new();
     let mut i = 0;
@@ -214,15 +213,11 @@ fn read_text(text: &str) -> Vec<Span> {
         }
         i = end;
     }
-    let mut regions: Vec<usize> = delimiters.iter().map(|d| d.region).collect();
-    regions.sort_unstable();
-    regions.dedup();
-    for here in regions {
-        let mut group: Vec<Delimiter> = delimiters
-            .iter()
-            .filter(|d| d.region == here)
-            .cloned()
-            .collect();
+    let mut regions: std::collections::BTreeMap<usize, Vec<Delimiter>> = Default::default();
+    for delimiter in delimiters {
+        regions.entry(delimiter.region).or_default().push(delimiter);
+    }
+    for mut group in regions.into_values() {
         emphasis(&mut group, &mut spans);
     }
 
@@ -230,12 +225,17 @@ fn read_text(text: &str) -> Vec<Span> {
     spans
 }
 
-/// Runs of free bytes that `skip` does not exclude.
-fn free_runs(taken: &[Taken], skip: impl Fn(usize) -> bool) -> Vec<(usize, usize)> {
+/// Runs of free bytes outside every link label (`links`, in order).
+fn free_runs(taken: &[Taken], links: &[Range<usize>]) -> Vec<(usize, usize)> {
     let mut runs = Vec::new();
     let mut start = None;
+    let mut label = 0;
     for at in 0..=taken.len() {
-        let open = at < taken.len() && taken[at] == Taken::Free && !skip(at);
+        while links.get(label).is_some_and(|link| link.end <= at) {
+            label += 1;
+        }
+        let in_label = links.get(label).is_some_and(|link| link.start <= at);
+        let open = at < taken.len() && taken[at] == Taken::Free && !in_label;
         match (open, start) {
             (true, None) => start = Some(at),
             (false, Some(from)) => {
@@ -246,6 +246,31 @@ fn free_runs(taken: &[Taken], skip: impl Fn(usize) -> bool) -> Vec<(usize, usize
         }
     }
     runs
+}
+
+/// Whether a range lies inside another of `ranges`, one that is not itself.
+fn inside_any(ranges: &[Range<usize>]) -> impl Fn(&Range<usize>) -> bool {
+    // By start, longest first; `reach[i]` is the furthest end among the first `i + 1`.
+    let mut sorted = ranges.to_vec();
+    sorted.sort_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+    let reach: Vec<usize> = sorted
+        .iter()
+        .scan(0, |furthest: &mut usize, range| {
+            *furthest = (*furthest).max(range.end);
+            Some(*furthest)
+        })
+        .collect();
+    move |range| {
+        let earlier = sorted.partition_point(|other| other.start < range.start);
+        // One starting earlier holds it if it reaches as far; one starting
+        // together holds it if it is longer.
+        earlier
+            .checked_sub(1)
+            .is_some_and(|last| reach[last] >= range.end)
+            || sorted
+                .get(earlier)
+                .is_some_and(|other| other.start == range.start && other.end > range.end)
+    }
 }
 
 /// URL and address literals in `text[start..end]`, GFM's grammar.
