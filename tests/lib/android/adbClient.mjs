@@ -133,7 +133,7 @@ export function createAdbClient({
 
   const keyevent = (code) => shell(`input keyevent ${code}`);
 
-  /** `input text` needs %s for spaces; it cannot reach the editor WebView. The
+  /** `input text` needs %s for spaces. The
    *  text is shell-quoted like a path — an apostrophe in it would otherwise end
    *  the quoting and hand the rest to the device shell as commands.
    *

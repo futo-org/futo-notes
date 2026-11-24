@@ -2,8 +2,9 @@
 
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
-# release mobile apps on tags; on default-branch pushes they remain build-only
-# verification jobs with no device install.
+# (futo-notes-ffi via UniFFI). These are the release mobile apps on tags; on
+# default-branch pushes they remain build-only verification jobs with no device
+# install.
 # ─────────────────────────────────────────────────────────────
 
 build:android-native:

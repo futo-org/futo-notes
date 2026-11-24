@@ -1,7 +1,8 @@
 # Appended to .cirrus.yml by .cirrus.star: native iOS build.
 
-# Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
-# non-tag builds are unsigned simulator compile checks.
+# Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core). Tag builds
+# produce a signed Release IPA for TestFlight; non-tag builds are unsigned
+# simulator compile checks.
 build_ios_native_task:
   name: buildFutoNotesIOSNative
   macos_instance:
