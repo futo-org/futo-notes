@@ -132,7 +132,9 @@ deploy-rpm:
   echo "Installing ${RPM}..."
   # rpm -U --force, not dnf reinstall (silently no-ops on a version mismatch); justfile-notes.md.
   if rpm -q futo-notes >/dev/null 2>&1; then
-    sudo rpm -Uvh --force "$RPM"
+    # --nosignature: rpm 6 refuses unsigned packages; local builds are unsigned
+    # and the header/payload digests are still verified.
+    sudo rpm -Uvh --force --nosignature "$RPM"
   else
     sudo dnf install -y "$RPM"
   fi
