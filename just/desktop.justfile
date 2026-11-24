@@ -33,6 +33,9 @@ test-desktop-smoke:
 # Embedded debug app with test hooks; always build current web and Rust sources.
 build-desktop-test:
   bash scripts/dev-env.sh node scripts/setup-worktree.mjs desktop --check
+  # The desktop editor's engine (gitignored src/features/editor/desktop/wasm/): without it
+  # the bundle builds, but no note opens.
+  node scripts/build-editor-wasm.mjs
   VITE_INCLUDE_TEST_HOOKS=true just build
   # cargo clean -p so the build re-runs and re-embeds dist/ with the test
   # hooks: a futo-notes-tauri crate cached from a build without

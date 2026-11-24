@@ -16,6 +16,8 @@ test:e2e:rest:
     - !reference [.cache-playwright, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
+    # The desktop editor's engine (gitignored src/features/editor/desktop/wasm/).
+    - node scripts/build-editor-wasm.mjs
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:rest
     # M11: a green exit with zero tests (a broken testMatch) must still fail red.
@@ -36,6 +38,7 @@ test:e2e:rest:
       changes:
         - src/**/*
         - packages/editor/**/*
+        - crates/futo-notes-editor/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts

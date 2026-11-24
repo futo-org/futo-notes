@@ -31,6 +31,12 @@ export function ensureDesktopDebugBinary() {
     rebuildDesktopBinary();
     return;
   }
+  // A bundle built before the editor engine was (scripts/build-editor-wasm.mjs) opens no note.
+  if (!distHasEditorEngine()) {
+    console.log('dist/ has no editor engine (wasm) — rebuilding desktop binary…');
+    rebuildDesktopBinary();
+    return;
+  }
   // Provenance check: `cargo tauri dev` (and plain `cargo build`) write the
   // SAME target/debug/futo-notes-tauri path, but bake a dev config into it —
   // a dev-server devUrl and a per-worktree identifier. Launched by this
@@ -158,6 +164,14 @@ function distHasTestHooks() {
       const path = join(assetsDir, name);
       return REQUIRED_TEST_HOOKS.every((needle) => fileContains(path, needle));
     });
+}
+
+function distHasEditorEngine() {
+  const assetsDir = join(REPO_ROOT, 'dist', 'assets');
+  return (
+    existsSync(assetsDir) &&
+    readdirSync(assetsDir).some((name) => /^futo_notes_editor_bg.*\.wasm$/.test(name))
+  );
 }
 
 function fileContains(path, needle) {
