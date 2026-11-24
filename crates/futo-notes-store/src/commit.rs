@@ -272,27 +272,34 @@ impl LocalNoteStore {
             Err(WriteError::InstalledNotDurable(error)) => Some(error),
             Err(error) => return Err(error.into()),
         };
-        self.stamp_note(id, modified_ms)?;
+        let stamped = self.stamp_note(id, modified_ms);
+        // The bytes are on disk. Whatever stops this save short of returning its
+        // mutation (an unproven directory fsync, a refused explicit mtime), the
+        // shell never sees it, so the retry (a converged flush) owes it.
+        let owed = installed_not_durable.is_some() || stamped.is_err();
+        if owed {
+            self.owe_mutation(id);
+        }
+        stamped?;
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
         self.search.notify(&change);
-        // The bytes are on disk, so the note is stamped and search knows; only
-        // the durability is unproven, and the save must not be acknowledged. The
-        // shell never gets this save's mutation, so the retry (a converged flush)
-        // owes it: `installed_not_durable` remembers.
-        let mut pending = self
-            .installed_not_durable
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
         match installed_not_durable {
-            Some(error) => {
-                pending.insert(id.to_owned());
-                Err(error)
-            }
+            Some(error) => Err(error),
             None => {
-                pending.remove(id);
+                self.installed_not_durable
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(id);
                 Ok(metadata)
             }
         }
+    }
+
+    fn owe_mutation(&self, id: &str) {
+        self.installed_not_durable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id.to_owned());
     }
 }
