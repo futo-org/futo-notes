@@ -12,7 +12,8 @@
   because Svelte wraps handlers.
 - **What it found.** The per-control check found 370 gaps on its first run (09-30), and 151 more
   after the rebase onto main (10-02). Both were taken to zero.
-- **Blind spot.** It cannot see ProseMirror plugin handlers, which were inventoried by hand.
+- **Blind spot.** It could not see the Milkdown editor's ProseMirror plugin handlers, which were
+  inventoried by hand.
 
 **A verb is one user action; shortcuts are marked.**
 - **Composite verbs rejected.** The optimisation loop added `OpenNotes {noteIds}`. Mason rejected
@@ -82,6 +83,9 @@ unchanged, because agents adapt them.
   checkboxes, and the serializer rewriting `---` as `***`.
 - **Result.** Held-out stayed 80/80. `Select` still takes `expect`, and a stale document version
   refuses.
+- **Since then.** Milkdown is gone (2026-11); positions are now the active renderer's own (the
+  desktop editor's engine offsets, native UTF-16 on iOS), and the `md│` row still prints where the
+  saved markdown differs.
 
 **Confirmations and the OS.**
 - **Confirmations.** Every confirming verb takes an optional `answer: confirm|dismiss`. Without it,

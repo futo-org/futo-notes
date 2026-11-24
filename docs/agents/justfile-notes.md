@@ -7,7 +7,7 @@ directly above a recipe, so anything longer was dead weight in the file that nob
 short of opening the source. One `##` section per recipe (or per cross-cutting topic).
 
 The root `justfile` holds only the settings, aliases, and `import` lines; the recipes live in
-`just/<job>.justfile` (setup, test, desktop, mobile, editor, qa, checks), each kept under the
+`just/<job>.justfile` (setup, test, desktop, mobile, android-test, perf, qa, checks), each kept under the
 5,000-token pre-commit limit (`scripts/check-file-tokens.mjs`). Scripts that grep recipe text
 read all of them through `readJustfileSource` in `scripts/lib/justfile.mjs`.
 

@@ -1,9 +1,8 @@
 # Round-trip normalization is acceptable — the editor may re-spell markdown it saves
 
-> For the text-first replacement, superseded by
-> [ADR-0011](0011-text-first-editor-replacement.md). This ADR continues to describe the
-> Milkdown editor, which was removed in 2026-11; every platform now edits through the
-> text-first engine.
+> **Status: Superseded** by [ADR-0011](0011-text-first-editor-replacement.md). The Milkdown
+> editor this decision covered was removed in 2026-11; every platform now edits through the
+> text-first engine. The body is kept as the record.
 
 The editor contract historically required byte fidelity ("diff discipline"): saving changed only
 the bytes the user actually touched, and untouched content stayed byte-exact — marker style

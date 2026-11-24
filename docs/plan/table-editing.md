@@ -4,8 +4,8 @@ Design: Figma "FUTO Notes – Mobile App (WIP)", section **Table edit** (node `1
 Frames: `Table / Cell Selected` (1588:4108), `Table / Row actions` (1588:3886),
 `Table / Table actions` (1588:3979), `Table / Drag` (1588:3758) — each in dark and light.
 
-> Superseded in part (2026-11): the Milkdown implementation named below was removed; tables are now
-> engine-backed (`crates/futo-notes-editor`, `src/features/editor/desktop/editorTables.ts`).
+> Superseded in part (2026-11): the Milkdown implementation this plan named was removed; tables are
+> now engine-backed (`crates/futo-notes-editor`, `src/features/editor/desktop/editorTables.ts`). See §4.
 
 Decided with Justin, 2026-09-15. This plan is the contract the implementation lanes build
 against; where it and a lane's judgment disagree, this document wins or gets amended first.
@@ -91,48 +91,16 @@ The note on disk is GFM. The design has two toggles; the format supports one.
 
 Every mutation round-trips: save → reopen → save is byte-identical, column alignment included.
 
-## 4. Where the code goes
+## 4. Status (2026-11)
 
-- **Verbs** — `src/features/editor/milkdown/table/tableCommands.ts`. One command per menu id,
-  plus the predicate that answers "is this id disabled for this selection". Pure, unit-tested,
-  no DOM.
-- **Manifest** — `packages/editor/src/tableActions.ts`, the single source of truth for the
-  three menus: ids, labels, grouping, order, destructive flag, and per-platform icon names
-  (lucide / SF Symbol / Material), exactly as `toolbar.ts` does for the formatting toolbar.
-  Native specs are GENERATED from it; never hand-edit a generated spec.
-- **Selection + overlay** — a new module under `table/`: selection state, the outline, both
-  grips, the edge `+` affordances, the `…` button, drag-to-reorder and its drop indicator.
-- **Menu presentation** — desktop popover in the editor; mobile sheets rendered natively by
-  each shell from the generated spec.
-- Behavior NEVER lives in a shell. A shell renders the manifest and dispatches the id back.
-
-## 5. Bridge
-
-A new outbound message when a grip or the `…` button is tapped:
-
-    { type: 'tableMenu', kind: 'row' | 'column' | 'table', disabled: string[], headerRow: boolean }
-
-`disabled` carries the manifest ids that are inert for the current selection, computed by the
-editor — the shells never re-derive table rules. The shell renders the matching sheet and
-dispatches the chosen id through the existing `exec(id)` path.
-
-Additive, and a host without a case for it simply shows no sheet — exactly today's behavior,
-which is no mobile table editing at all. That is the same reasoning `bridge.ts` records for
-`formatState`, `haptic`, `blockDrag` and `blockPress`, all of which shipped unversioned.
-**No `BRIDGE_VERSION` bump.** Both native hosts must land it in the same commit (M10).
-
-## 6. Lanes
-
-- **T1 — verbs.** Every command in §2 plus the disabled predicate, in `tableCommands.ts`, with
-  markdown round-trip tests including header-row-off and reordering. No UI. Everything else
-  depends on this, so it lands first.
-- **T2 — selection and overlay.** The §1 interaction in the shared editor, the desktop popover,
-  and the removal of the hover-grip UI.
-- **T3 — manifest, bridge and native sheets.** `tableActions.ts`, its generator and check
-  recipe, the `tableMenu` message, and the SwiftUI + Compose sheets.
-
-T2 and T3 both consume T1's ids, and T3's manifest is what T2's popover renders, so the ids in
-§2 are fixed by this document rather than negotiated between lanes.
+The implementation this plan first described — verbs in the Milkdown editor, a
+`packages/editor/src/tableActions.ts` manifest, a `tableMenu` bridge message and the T1–T3 lanes
+— went with Milkdown and the mobile web editor. Tables are now engine-backed
+(`crates/futo-notes-editor`): desktop draws hover grips (`src/features/editor/desktop/tableGrips.ts`,
+docs/spec/editor/desktop/tables.md), Android opens native popup menus at its grips
+(docs/spec/editor/mobile/tables.md), and the iOS editor has no row or column menus yet. §1–3 stay
+the decided model and menu contents; any new table command belongs in the engine, reached from
+each shell's editor session.
 
 ## 7. Out of scope
 

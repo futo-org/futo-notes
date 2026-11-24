@@ -7,7 +7,8 @@
   refusing.
 - **Phone speed.** The settle is still 400 ms, and an iOS key costs about 130 ms.
 - **Coverage gaps.**
-  - No fix-quality (scenario) run since the Milkdown port.
+  - No fix-quality (scenario) run since the Milkdown port, nor since the engine-backed editors
+    replaced it.
   - The phones were never in diagnosis.
   - The hard tier and the loop's repeats are not in the committed harness.
 - **Held-out leakage.** The v11 wording and the 10-05 fixes came from held-out transcripts, so

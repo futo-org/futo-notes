@@ -17,11 +17,11 @@ the Kotlin half and the device checks, listed per item.
   reads the engine: `EditorEngineCaret.kt:26-27` adds `indent`/`outdent` to `disabled` from
   `ToolbarState.canIndent/canOutdent`, which now follows !599/!604. No Kotlin change is
   expected; it still needs checking on a device.
-- **Still open:** the shared manifest `packages/editor/src/toolbar.ts:229,238` still has
+- **Still open:** the shared manifest `packages/editor/src/toolbar.ts:201,209` still has
   `when: 'inContainer'`. That generates `ui/ToolbarSpec.kt` (`onlyInContainer = true`,
   regenerated with `just toolbar-spec`), which `ui/EditorToolbar.kt:113,188` uses to hide them.
-  Changing the manifest also changes the desktop embed toolbar, so it is a
-  cross-surface change. Coordinate with Justin before doing it.
+  Changing the manifest also regenerates the iOS spec, so it is a cross-platform change.
+  Coordinate with Justin before doing it.
 - **Verify on device:** Indent is greyed on the first item, Outdent on a
   top-level item, both on a paragraph, heading, plain quote or table. Both are lit on code
   lines and other list items.

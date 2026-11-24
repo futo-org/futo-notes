@@ -44,7 +44,7 @@ iPhone 17 Pro), automated steps via `just test-ios-stories`:
 
 The finger-tracked edge swipe was not run by a person on this build.
 
-## Current implementation run
+## Ownership-build run (WebView, bridge v9)
 
 2026-10-03, `step1-editor-ownership`, claimed iOS 27 iPhone 17 Pro simulator
 `futo-qa-0`, bridge v9: passed the automated wikilink-pop story on the warm

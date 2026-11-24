@@ -73,7 +73,7 @@ until something needs it.
 screens come from the app's own accessibility, read in-process (iOS `PuppetScreenReader.swift`
 keeps an element only where the window's hit test at its point reaches it; Android reads the
 merged Compose semantics of the topmost window that takes touches). On a phone's editor
-screen the page's rows join the native ones, shifted into screen points (iOS) or dp
+screen the native editor's rows are among them, already in screen points (iOS) or dp
 (Android), so one coordinate space holds the whole screen (`crates/futo-puppet/src/screen.rs`).
 Only what a click or a finger can reach is listed; a half-covered control carries `aim`, the
 point that reaches it. Native refs persist in `.puppet/native-refs.json`. A row prints what it
@@ -119,7 +119,7 @@ and `events`.
 ## Editor verbs
 
 - **The selection is the argument.** Formatting verbs take no arguments and act on the
-  selection, as their toolbar buttons do; they are named after the `TOOLBAR_EXEC` ids
+  selection, as their toolbar buttons do; they are named after the toolbar manifest's ids
   (`Bold`, `Heading`, `TaskList`, …). `Select` supplies the selection.
 - **Positions belong to the active renderer** (the desktop editor's engine offsets or native iOS UTF-16), read from `doc`, `show {"text"}` or `state`, never counted
   from markdown. `expect` refuses 409 if the text at a range differs; `docVersion` (a hash of
@@ -175,13 +175,12 @@ and `events`.
 
 ## The inspector engine (page side)
 
-The web view is the whole desktop UI and the editor on both phones, and the one surface where
-"what handles this tap" has an exact answer.
+The web view is the whole desktop UI, and the one surface where "what handles this tap" has an
+exact answer. The phones' editors are native (see the native iOS editor adapter below).
 
 - **Describe:** rect, clipping ancestors, `pointer-events`, owning Svelte component, handlers
   by event and function name. The component file comes from the `__svelte_meta.loc.file`
-  that a Svelte 5 dev build stamps on each element; function names alone collide. The
-  phones' editor page is a production build, so its elements name no component.
+  that a Svelte 5 dev build stamps on each element; function names alone collide.
 - **Probe:** the stack at a point, merged from `elementsFromPoint` and geometry so
   `pointer-events: none` layers still show, and hit versus paint: an analytic prediction of
   what an element paints, checked by the browser just inside each edge and rounded corner.
@@ -199,16 +198,11 @@ The web view is the whole desktop UI and the editor on both phones, and the one 
 
 - **Compiled out of release.** `TEST_HOOKS_ENABLED` (`src/app/testHooksEnabled.ts`) is
   replaced statically by Vite and the engine is a dynamic import behind it, so a release
-  bundle carries none of it. Every native debug recipe builds `editor.html` as release does,
-  minified, plus `VITE_INCLUDE_TEST_HOOKS=true`, which adds the engine and keeps function
-  names (without them every handler is named `Id`). A development bundle was twice the size
-  and slower, so debug apps and the perf gate ran code that does not ship. Release also
-  closes every channel that could reach the page: the mcp-bridge is
-  `cfg(debug_assertions)`, iOS `isInspectable` is `#if DEBUG`, Android's DevTools follow
-  `BuildConfig.DEBUG`, and the phones' listeners exist only in debug builds.
-- **A hand-built release after a debug recipe** packages the staged debug `editor.html`.
-  Accepted (2026-10-26): CI and the deploy scripts rebuild the bundle, nobody builds a release
-  by hand, and the release listener is absent, so nothing can call the page code.
+  bundle carries none of it. A desktop build that needs it outside dev sets
+  `VITE_INCLUDE_TEST_HOOKS=true` (`just/desktop.justfile`), which adds the engine and keeps
+  function names (without them every handler is named `Id`). Release also closes every
+  channel that could reach the page: the mcp-bridge is `cfg(debug_assertions)`, and the
+  phones' listeners exist only in debug builds.
 - **Only this checkout's debug app.** A desktop target is resolved only through
   `scripts/qa-target.mjs` (M24), and the CLI remembers the vetted process (pid, start time,
   executable, vault override) in `.puppet/verified-desktop-app.json`. A phone listener is
@@ -243,8 +237,8 @@ The web view is the whole desktop UI and the editor on both phones, and the one 
 The debug-only `App/PuppetNative` adapter borrows the active text-first controller weakly.
 It reads the native storage, canonical session projections and clipped UIKit viewport;
 reads do not settle composition or flush disk. Native screen rectangles are already in
-screen points. `editor.surface="native"` distinguishes this surface from a WebView,
-including its loading interval; the CLI keeps page traces exclusive to actual WebViews.
+screen points. `editor.surface="native"` marks this surface, including its loading
+interval; its traces carry document and selection diffs, never DOM events.
 Native actions use the controller's UIInput, paragraph, toolbar and clipboard handlers.
 Request-scoped snapshots produce document/selection diffs with no invented DOM events.
 The private puppet clipboard shares serialization with native Copy/Cut/Paste, while real
