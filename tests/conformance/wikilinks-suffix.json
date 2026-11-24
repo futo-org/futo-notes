@@ -1,6 +1,6 @@
 {
-  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
-  "description": "Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).",
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; the Rust rule must match.",
+  "description": "Wikilink resolution / display-suffix / rewrite rules (crates/futo-notes-wikilinks).",
   "groups": [
     {
       "op": "shortestUniqueSuffix",

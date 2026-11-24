@@ -186,7 +186,7 @@ if (mismatches.length > 0) {
         ? `\n... and ${mismatches.length - shown.length} more (re-run with --all).\n`
         : '') +
       '\nRust is canonical (AGENTS.md M6/M7). Fix the TypeScript copy under\n' +
-      'packages/editor/src/ (or src/shared/note/wikilinks.ts) unless the Rust rule is\n' +
+      'packages/editor/src/ unless the Rust rule is\n' +
       'the one that is wrong - then change BOTH, update the reviewed goldens in\n' +
       'tests/conformance/*.json, and record the behavior change in docs/spec/.\n' +
       'See tests/conformance/README.md.\n',

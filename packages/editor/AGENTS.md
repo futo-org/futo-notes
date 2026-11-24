@@ -7,9 +7,10 @@ toolbar and title manifests, and the engine's WASM payload types.
 
 ## Ownership and traps
 
-- Rust remains canonical for filename, tag, preview, wikilink, and image rules. Hot-path TS mirrors
-  live here except wikilinks (`src/shared/note/wikilinks.ts`) and stay locked by the hand-reviewed
-  goldens in `tests/conformance/`.
+- Rust remains canonical for filename, tag, preview, wikilink, and image rules. The hot-path TS
+  mirrors (filename, tag, preview, image) live here and stay locked by the hand-reviewed goldens in
+  `tests/conformance/`. Wikilink rules have no TS copy: the desktop editor and the store reach
+  them in Rust (`crates/futo-notes-wikilinks`).
 - `src/wellFormed.ts` owns "no lone surrogate leaves the editor" (RC-48, decision 16A): the desktop
   `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) and clipboard writes use it to turn
   each one into U+FFFD. It carries the fallback where `String.prototype.toWellFormed` is unavailable.

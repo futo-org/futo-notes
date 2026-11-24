@@ -26,7 +26,7 @@ function plan(...paths) {
   const changed = paths.map((p) =>
     p.startsWith('-') ? { path: p.slice(1), deleted: true } : { path: p, deleted: false },
   );
-  const differentialInputs = ['src/shared/note/wikilinks.ts'];
+  const differentialInputs = ['packages/editor/src/tags.ts'];
   const globs = [
     { dir: 'languages', module: 'src/shared/localization/bundledLanguageCatalogs.ts' },
   ];
@@ -112,9 +112,9 @@ describe('planCheck', () => {
   });
 
   it('a TS file the differential imports runs the differential', () => {
-    expect(plan('src/shared/note/wikilinks.ts').step('differential')).toMatchObject({
+    expect(plan('packages/editor/src/tags.ts').step('differential')).toMatchObject({
       run: true,
-      why: 'it imports or reads src/shared/note/wikilinks.ts',
+      why: 'it imports or reads packages/editor/src/tags.ts',
     });
   });
 });
@@ -127,7 +127,8 @@ describe('importClosure', () => {
       expect.arrayContaining([
         'packages/editor/src/filename.ts',
         'packages/editor/src/tags.ts',
-        'src/shared/note/wikilinks.ts',
+        'packages/editor/src/preview.ts',
+        'packages/editor/src/images.ts',
       ]),
     );
   });

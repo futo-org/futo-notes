@@ -24,11 +24,6 @@ import {
   normalizeTagName,
   tagRegexMatches,
 } from '../../../packages/editor/src/tags.ts';
-import {
-  resolveWikilink,
-  rewriteWikilinks,
-  shortestUniqueSuffix,
-} from '../../../src/shared/note/wikilinks.ts';
 
 // --- The TypeScript side of every cross-language op -------------------------
 //
@@ -65,8 +60,4 @@ export const TS_OPS = {
   // images.ts
   isImageFilename: (input) => isImageFilename(input),
   imageExtensions: () => [...IMAGE_EXTENSIONS],
-  // wikilinks.ts
-  resolveWikilink: (input) => resolveWikilink(input.target, input.allIds),
-  shortestUniqueSuffix: (input) => shortestUniqueSuffix(input.targetId, input.allIds),
-  rewriteWikilinks: (input) => rewriteWikilinks(input.text, input.oldId, input.newId, input.allIds),
 };
