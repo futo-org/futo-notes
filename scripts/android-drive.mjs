@@ -41,13 +41,17 @@ Any command needs a booted device with the DEBUG app installed:
   just qa-claim android && just android-native
 `;
 
+// The same tags as `just emu-logs` (just/qa.justfile).
 const DEFAULT_LOG_TAGS = [
   'FutoStartup',
   'FutoSearch',
   'NotesStore',
+  'FutoLicense',
+  'SyncManager',
+  'PlatformTrust',
   'FutoTestHook',
-  'FutoToolbarDBG',
-  'FutoBridgeDBG',
+  'FutoPuppet',
+  'TextFirst',
   'AndroidRuntime',
 ];
 

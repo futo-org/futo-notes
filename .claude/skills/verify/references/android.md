@@ -190,11 +190,10 @@ firehose:
 ```bash
 just android-drive logs     # the same tags, without needing to remember them
 adb logcat -c               # clear first, act, then read:
-just emu-logs               # = adb logcat -s FutoStartup FutoSearch NotesStore FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+just emu-logs               # = adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense SyncManager PlatformTrust FutoTestHook FutoPuppet TextFirst AndroidRuntime
 ```
 
-`AndroidRuntime` catches crashes; `FutoBridgeDBG`/`FutoToolbarDBG` log the
-editor↔native bridge; `FutoTestHook` carries one ack line per hook call. Crash
+`AndroidRuntime` catches crashes; `FutoTestHook` carries one ack line per hook call. Crash
 reports land in `<vault>/.crashlogs` and are offered for upload on the next
 launch.
 

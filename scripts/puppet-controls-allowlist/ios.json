@@ -2,11 +2,11 @@
   "computed": {
     "apps/ios/Sources/Editor/Toolbar/EditorToolbar.swift": {
       "count": 1,
-      "why": "the keyboard accessory's items, labelled from ToolbarSpec (generated from packages/editor/src/toolbar.ts); each is an editor verb"
+      "why": "the keyboard accessory's items, labelled from ToolbarSpec (generated from packages/editor/src/toolbar.ts); each is a native editor verb (PuppetNativeVerbs.swift)"
     },
     "apps/ios/Sources/Editor/Toolbar/ToolbarControls.swift": {
       "count": 1,
-      "why": "the keyboard's dismiss capsule (ToolbarIconButton), labelled from ToolbarSpec.dismiss: DismissKeyboard, the editor's from its web view and Feedback's from FeedbackView"
+      "why": "the keyboard's dismiss capsule (ToolbarIconButton), labelled from ToolbarSpec.dismiss: the editor's keyboard dismiss and Feedback's DismissKeyboard from FeedbackView"
     },
     "apps/ios/Sources/Notes/List/DestructiveConfirmDialog.swift": {
       "count": 1,

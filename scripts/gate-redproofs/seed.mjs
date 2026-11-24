@@ -3,13 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Generated-contract targets, for the three gen-*-spec proofs.
+// Generated-contract targets, for the gen-toolbar-spec and gen-title-spec proofs.
 export const TOOLBAR_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift';
 export const TOOLBAR_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt';
 export const TITLE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift';
 export const TITLE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/TitleSpec.kt';
-export const BRIDGE_SWIFT = 'apps/ios/Sources/Editor/GeneratedContracts/BridgeSpec.swift';
-export const BRIDGE_KOTLIN = 'apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt';
 
 // ---------------------------------------------------------------------------
 // Seeding helpers — every mutation goes through these so revert stays simple
