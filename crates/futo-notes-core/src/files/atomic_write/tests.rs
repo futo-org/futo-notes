@@ -11,7 +11,7 @@ fn atomic_text_write_replaces_content_without_temp_litter() {
     assert_eq!(fs::read_to_string(path).unwrap(), "second\n😀");
     assert!(fs::read_dir(root).unwrap().flatten().all(|entry| {
         let name = entry.file_name().to_string_lossy().into_owned();
-        !name.starts_with(".sf-tmp-") && !name.starts_with(".sf-bak-")
+        !name.starts_with(".sf-wtmp-") && !name.starts_with(".sf-bak-")
     }));
 }
 
@@ -26,6 +26,12 @@ fn a_failed_directory_sync_fails_the_write() {
 
     assert!(error.contains("syncing directory"), "{error}");
     write_atomic_text(&path, "body").unwrap();
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_bare_relative_path_syncs_the_current_directory() {
+    sync_parent_directory(Path::new("")).unwrap();
 }
 
 #[cfg(unix)]
@@ -93,7 +99,7 @@ fn create_new_atomic_writes_a_fresh_note_and_leaves_no_temp() {
     assert!(fs::read_dir(root)
         .unwrap()
         .flatten()
-        .all(|entry| { !entry.file_name().to_string_lossy().starts_with(".sf-tmp-") }));
+        .all(|entry| { !entry.file_name().to_string_lossy().starts_with(".sf-wtmp-") }));
 }
 
 #[test]
@@ -202,7 +208,7 @@ fn create_new_atomic_installs_a_note_when_links_and_rename_flags_are_both_reject
     let litter = fs::read_dir(root)
         .unwrap()
         .flatten()
-        .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-tmp-"));
+        .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-wtmp-"));
 
     assert_eq!(
         (created, content.as_deref(), litter),

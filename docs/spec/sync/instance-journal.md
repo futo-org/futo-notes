@@ -33,6 +33,10 @@
   and only the marker can answer how long after opening the app the first one
   started. It also separates sessions in a ring that spans many runs. →
   futo-notes-tauri `instance_journal.rs`
+- **A torn line costs only itself.** Each event is one write with its newline;
+  a crash or failed write can still leave an unterminated tail, and the next
+  append starts on a fresh line, so the event after it is never glued onto it. →
+  futo-notes-core `journal/segments.rs`
 - Read it with `just journal` (`tail`, `type <event>`, `last-sync`, `startup`,
   `where`), or with `jq` over the JSONL directly. `startup` reports, per launch,
   how long until that session's first cycle started. → scripts/journal.mjs

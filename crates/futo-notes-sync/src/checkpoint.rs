@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use futo_notes_core::files::write_atomic_text;
+use futo_notes_core::files::{sync_parent_directory, write_atomic_text};
 use serde::{Deserialize, Serialize};
 
 const STATE_FILE: &str = ".e2ee-state.json";
@@ -187,7 +187,10 @@ pub(crate) fn save(root: &Path, state: &ConnectedState) -> Result<(), String> {
     // in-memory state) keeps every durability property: a missing, stale, or
     // torn file never matches and is rewritten as before.
     if std::fs::read(&path).is_ok_and(|current| current == json.as_bytes()) {
-        return Ok(());
+        // The bytes may have been installed by a write whose directory fsync
+        // failed, and that write reported the failure; acknowledging the same
+        // bytes now takes the fsync it never got.
+        return sync_parent_directory(root);
     }
     write_atomic_text(&path, &json)
 }

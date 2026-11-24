@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::sync::PoisonError;
 
+use futo_notes_core::files::vault_fs::WriteError;
 use futo_notes_core::files::{collides_but_differs, now_ms, vault_fs};
 use futo_notes_model::{make_id, split_id};
 
@@ -264,11 +266,33 @@ impl LocalNoteStore {
         } else {
             vault_fs::write_atomic_local_in_existing_parent
         };
-        write(&self.root, &note_filename(id), content.as_bytes())?;
+        let installed_not_durable = match write(&self.root, &note_filename(id), content.as_bytes())
+        {
+            Ok(()) => None,
+            Err(WriteError::InstalledNotDurable(error)) => Some(error),
+            Err(error) => return Err(error.into()),
+        };
         self.stamp_note(id, modified_ms)?;
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
         self.search.notify(&change);
-        Ok(metadata)
+        // The bytes are on disk, so the note is stamped and search knows; only
+        // the durability is unproven, and the save must not be acknowledged. The
+        // shell never gets this save's mutation, so the retry (a converged flush)
+        // owes it: `installed_not_durable` remembers.
+        let mut pending = self
+            .installed_not_durable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match installed_not_durable {
+            Some(error) => {
+                pending.insert(id.to_owned());
+                Err(error)
+            }
+            None => {
+                pending.remove(id);
+                Ok(metadata)
+            }
+        }
     }
 }

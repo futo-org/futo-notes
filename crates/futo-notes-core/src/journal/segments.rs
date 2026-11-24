@@ -53,8 +53,9 @@ impl JournalSegments {
     /// Appends one line. Writes are unbuffered so a reader (a test, `just
     /// journal`, an agent mid-session) sees every event the writer has taken off
     /// the queue; they are deliberately not fsynced, because a journal lost to a
-    /// power cut is not worth a sync per event. The line and its newline go out
-    /// in ONE write, so a failure or a crash cannot separate them.
+    /// power cut is not worth a sync per event. The line and its newline are one
+    /// `write_all`, which the kernel normally takes whole; after a short write it
+    /// can still split, and that is what `unterminated` covers.
     pub(super) fn append(&mut self, line: &str) -> Result<(), String> {
         let mut record = String::with_capacity(line.len() + 2);
         if self.unterminated {

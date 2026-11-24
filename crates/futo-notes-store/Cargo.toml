@@ -28,6 +28,8 @@ crc32fast = "1"
 walkdir = "2.5"
 
 [dev-dependencies]
+# `fail_directory_sync_on_call`, for saves whose directory fsync fails.
+futo-notes-core = { path = "../futo-notes-core", features = ["test-support"] }
 criterion = { version = "0.8", default-features = false }
 tempfile = "3"
 

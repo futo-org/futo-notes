@@ -311,8 +311,8 @@ fn opening_the_vault_sweeps_the_temp_a_crashed_save_left_behind() {
     let root = TestRoot::new();
     let store = store(&root);
     fs::write(root.0.join("Welcome.md"), "installed").unwrap();
-    let stale = root.0.join(".sf-tmp-4242-1-0");
-    let live = root.0.join(".sf-tmp-4243-1-0");
+    let stale = root.0.join(".sf-wtmp-4242-1-0");
+    let live = root.0.join(".sf-wtmp-4243-1-0");
     fs::write(&stale, "installed, then edited").unwrap();
     fs::write(&live, "being written").unwrap();
     let an_hour_ago = futo_notes_core::files::now_ms() - 60 * 60 * 1000;
@@ -327,5 +327,5 @@ fn opening_the_vault_sweeps_the_temp_a_crashed_save_left_behind() {
         .snapshot()
         .notes
         .iter()
-        .all(|note| !note.id.contains("sf-tmp")));
+        .all(|note| !note.id.contains("sf-wtmp")));
 }

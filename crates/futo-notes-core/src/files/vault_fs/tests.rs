@@ -156,8 +156,11 @@ fn local_write_reports_directory_sync_failure() {
 
     let error = write_atomic_local(root.path(), "note.md", b"edited").unwrap_err();
 
-    assert!(error.contains("sync directory after write"));
-    // The bytes landed, so the retry's write (and the flush's converged check) is a no-surprise rewrite.
+    // Distinct from a failed write: the bytes are installed, and the caller has
+    // to treat the note as changed.
+    assert!(matches!(&error, WriteError::InstalledNotDurable(message)
+        if message.contains("sync directory after write")));
+    // The bytes landed, so a retry is a plain rewrite.
     assert_eq!(read(root.path(), "note.md").unwrap(), b"edited");
     write_atomic_local(root.path(), "note.md", b"edited").unwrap();
     platform::fail_directory_sync_on_call(1);

@@ -17,6 +17,7 @@ mod vault;
 mod vault_migration;
 mod welcome_seed;
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -242,6 +243,11 @@ pub struct LocalNoteStore {
     /// Index dir of the last `bootstrap_with_search`: where the Welcome-seeded
     /// marker lives, so a full reset can clear it.
     app_data_index: Mutex<Option<PathBuf>>,
+    /// Notes whose last save installed its bytes but failed the directory fsync
+    /// that makes them durable, and whose mutation the failed save therefore
+    /// never returned. The retry finds the draft already on disk; it syncs the
+    /// directory, then hands the shell the projection it missed.
+    installed_not_durable: Mutex<HashSet<String>>,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
@@ -269,6 +275,7 @@ impl LocalNoteStore {
             sort_order: Mutex::new(NoteSortOrder::default()),
             list_cache: list_cache::ListCache::new(),
             app_data_index: Mutex::new(None),
+            installed_not_durable: Mutex::new(HashSet::new()),
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]

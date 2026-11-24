@@ -231,6 +231,12 @@ pub fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
     platform::sync_parent(root, relative)
 }
 
+/// `sync_parent` under the local-store policy of `write_atomic_local`: a
+/// filesystem with no directory fsync is tolerated, any other failure is not.
+pub fn sync_parent_local(root: &Path, relative: &str) -> Result<(), String> {
+    platform::sync_parent_local(root, relative)
+}
+
 #[cfg(all(any(test, feature = "test-support"), unix))]
 pub fn fail_directory_sync_on_call(call: usize) {
     platform::fail_directory_sync_on_call(call);
@@ -301,10 +307,36 @@ pub fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), S
     platform::rename_case(root, source, destination)
 }
 
-/// Local-store policy: a directory fsync that fails fails the write, except on a
-/// filesystem that has no directory fsync at all, which is tolerated. Sync uses
-/// `write_atomic` and retains strict journal durability, unsupported included.
-pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+/// Why a local note write did not succeed. The two cases differ in what is on
+/// disk: a caller that sees `InstalledNotDurable` must still treat the note as
+/// changed (stamp it, tell search and the shell) before it reports the failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteError {
+    /// Nothing was installed under the note's name.
+    Failed(String),
+    /// The bytes ARE installed under the note's name, but the directory fsync
+    /// that makes the rename durable failed. Writing again is safe.
+    InstalledNotDurable(String),
+}
+
+impl std::fmt::Display for WriteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (Self::Failed(message) | Self::InstalledNotDurable(message)) = self;
+        formatter.write_str(message)
+    }
+}
+
+impl From<WriteError> for String {
+    fn from(error: WriteError) -> Self {
+        error.to_string()
+    }
+}
+
+/// Local-store policy: a directory fsync that fails fails the write
+/// (`WriteError::InstalledNotDurable`), except on a filesystem that has no
+/// directory fsync at all, which is tolerated. Sync uses `write_atomic` and
+/// retains strict journal durability, unsupported included.
+pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), WriteError> {
     platform::write_atomic_local(root, relative, bytes)
 }
 /// Replace an editor draft without recreating a parent moved outside the app.
@@ -312,7 +344,7 @@ pub fn write_atomic_local_in_existing_parent(
     root: &Path,
     relative: &str,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<(), WriteError> {
     platform::write_atomic_local_in_existing_parent(root, relative, bytes)
 }
 pub fn create_dir(root: &Path, relative: &str) -> Result<(), String> {

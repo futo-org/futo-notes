@@ -20,7 +20,9 @@ mod no_replace;
 #[path = "unix/writes.rs"]
 mod writes;
 
-pub(super) use directories::{clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent};
+pub(super) use directories::{
+    clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent, sync_parent_local,
+};
 pub(super) use no_replace::{
     create_new, create_new_in_existing_parent, create_new_strict, move_no_replace,
     move_no_replace_in_existing_parent, move_no_replace_strict, rename_case,

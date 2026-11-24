@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::{context, relative_components, OpenParentError};
+use super::{context, relative_components, OpenParentError, WriteError};
 
 /// Makes the next temp file vanish before it is installed, as a file-provider
 /// agent can take it.
@@ -254,20 +254,32 @@ pub(super) fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> 
 pub(super) fn sync_parent(_root: &Path, _relative: &str) -> Result<(), String> {
     Ok(())
 }
+pub(super) fn sync_parent_local(_root: &Path, _relative: &str) -> Result<(), String> {
+    Ok(())
+}
 
-pub(super) fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
-    write_atomic(root, relative, bytes)
+// The portable writer has no directory fsync to fail on Windows, the one place
+// it ships, so every failure here is `Failed`.
+pub(super) fn write_atomic_local(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<(), WriteError> {
+    write_atomic(root, relative, bytes).map_err(WriteError::Failed)
 }
 pub(super) fn write_atomic_local_in_existing_parent(
     root: &Path,
     relative: &str,
     bytes: &[u8],
-) -> Result<(), String> {
+) -> Result<(), WriteError> {
+    let path =
+        checked_path(root, relative, false).map_err(|error| WriteError::Failed(error.message()))?;
     crate::files::atomic_write::write_atomic_bytes_in_existing_parent_reporting(
-        &checked_path(root, relative, false).map_err(OpenParentError::message)?,
+        &path,
         bytes,
         &|error| super::note_create_failure(error, super::in_root(relative)),
     )
+    .map_err(WriteError::Failed)
 }
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;

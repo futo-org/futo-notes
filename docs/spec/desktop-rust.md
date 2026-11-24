@@ -75,8 +75,12 @@ compatibility requirements and must not be reintroduced.
   them. Symlinked parent components and note leaves are refused.
   Unix operations pin no-follow directory handles through the final syscall;
   path-based OS trash and the Windows fallback preflight every component.
-  Local operations preserve best-effort directory fsync; sync's journal-facing
-  operations require directory durability before acknowledging progress.
+  A note write fails when its directory fsync fails, except on a filesystem
+  with no directory fsync (EINVAL, ENOSYS, ENOTSUP) and on Windows; the bytes
+  are then installed, so the note is stamped and indexed and the save is retried.
+  Creates and moves stay best-effort, as they have already changed identity.
+  Sync's journal-facing operations require directory durability before
+  acknowledging progress.
   → `futo-notes-core::files::vault_fs`, `futo-notes-store::paths`
 - Before the first filesystem syscall, the store reports the complete planned
   `FileChange` set through `BeforeWrite`; desktop registers those paths in the
@@ -88,6 +92,12 @@ compatibility requirements and must not be reintroduced.
   iCloud Drive or Dropbox can take it) is written once more, for notes, app data
   and images alike. →
   `vault_fs::contract_tests::*::a_temp_file_taken_before_install_is_written_again`
+- A crash mid-save can leave its hidden `.sf-wtmp-*` temp in the vault. Opening
+  the vault, under the vault guard, deletes those older than 10 minutes in every
+  folder; a younger one may belong to a save in another process. Rename hops
+  (`.sf-hop-*`, and the older `.sf-tmp-*`) hold the only copy of a note and are
+  never swept. →
+  `files::parked_backup::tests::recover_sweeps_the_temp_a_crash_left_behind`
 - A watcher echo consumes one suppression entry. A later external edit inside
   the expiry window is therefore still delivered.
 - External changes are projected back into the store and trigger one index

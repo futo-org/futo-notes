@@ -149,11 +149,17 @@ pub(crate) fn write_atomic_bytes_in_existing_parent_reporting(
     sync_parent_directory(parent)
 }
 
-/// Makes the rename durable. A failure is a failed write — the caller would
-/// otherwise acknowledge bytes a power cut can still lose — except where the
-/// platform or filesystem has no directory fsync to offer.
+/// Makes a rename in `parent` durable. A failure is a failed write — the caller
+/// would otherwise acknowledge bytes a power cut can still lose — except where
+/// the platform or filesystem has no directory fsync to offer. An empty `parent`
+/// is what a bare relative path has, and means the current directory.
 #[cfg(not(windows))]
-fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+pub fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
     #[cfg(test)]
     if FAIL_DIRECTORY_SYNC.with(|v| v.replace(false)) {
         return Err(format!(
@@ -174,7 +180,7 @@ fn sync_parent_directory(parent: &Path) -> Result<(), String> {
 /// Windows cannot open a directory as a file, so there is no directory fsync to
 /// call; NTFS journals the rename itself.
 #[cfg(windows)]
-fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
+pub fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
     Ok(())
 }
 

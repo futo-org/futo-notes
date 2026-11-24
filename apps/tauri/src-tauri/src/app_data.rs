@@ -15,6 +15,7 @@ pub async fn app_data_write(app: AppHandle, path: String, content: String) -> Re
     blocking(move || {
         let root = crate::vault_location::root(&app)?;
         futo_notes_core::files::vault_fs::write_atomic_local(&root, &path, content.as_bytes())
+            .map_err(String::from)
     })
     .await
 }

@@ -6,7 +6,8 @@ mod timestamps;
 mod vault_lock;
 
 pub use atomic_write::{
-    create_new_atomic, move_no_replace, rename_through_temp, write_atomic_bytes, write_atomic_text,
+    create_new_atomic, move_no_replace, rename_through_temp, sync_parent_directory,
+    write_atomic_bytes, write_atomic_text,
 };
 pub use filenames::{
     collides_but_differs, collision_key, is_valid_title, is_windows_reserved_name, sanitize_title,

@@ -11,7 +11,7 @@ use rustix::fs::{
 
 use super::{
     entry_type, open_directory, open_parent, open_root, reject_symlink, report_local_sync,
-    sync_directory,
+    sync_directory, sync_directory_with,
 };
 use crate::files::vault_fs::{
     context, in_root, note_create_failure, refused_create, OpenParentError,
@@ -74,6 +74,21 @@ pub(in crate::files::vault_fs) fn sync_parent(root: &Path, relative: &str) -> Re
         &parent.directory,
         "sync directory before adopting existing content",
         relative,
+    )
+}
+
+/// `sync_parent` under the local-store policy: a filesystem with no directory
+/// fsync is tolerated, any other failure is not.
+pub(in crate::files::vault_fs) fn sync_parent_local(
+    root: &Path,
+    relative: &str,
+) -> Result<(), String> {
+    let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
+    sync_directory_with(
+        &parent.directory,
+        "sync directory before acknowledging a saved note",
+        relative,
+        true,
     )
 }
 

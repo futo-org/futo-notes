@@ -3,7 +3,7 @@
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)
-  is routed through a hidden temp name (`src` → `.sf-tmp-…` → `dst`) so the
+  is routed through a hidden temp name (`src` → `.sf-hop-…` → `dst`) so the
   kernel actually rewrites the stored bytes, and the false uniqueness bump
   (which used to land the rename at `Note-2.md`) is skipped. A byte-identical
   rename is still a fast no-op (F3). → futo-notes-model `crud::rename_note`

@@ -81,6 +81,7 @@ mod editor_session;
 mod editor_unicode;
 mod external_changes;
 mod flush_draft;
+mod flush_draft_durability;
 mod flush_draft_parking;
 mod modified_times;
 mod rename_and_folders;

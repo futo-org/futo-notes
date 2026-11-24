@@ -11,16 +11,19 @@ use super::vault_fs;
 
 const BACKUP_PREFIX: &str = ".sf-bak-";
 const BACKUP_SIDECAR_SUFFIX: &str = ".path";
-/// The name every atomic write's temp file carries until it is installed.
-pub(super) const TEMP_PURPOSE: &str = "tmp";
-/// A case-only rename's stop on the way to its destination. Named apart from the
-/// write temp on purpose: while a hop exists it holds the ONLY copy of a note, so
-/// the stale-temp sweep must never mistake it for litter.
+/// The name every atomic write's temp file carries until it is installed. Builds
+/// before the stale-temp sweep also used `.sf-tmp-` for a case-only rename's hop,
+/// which holds the ONLY copy of its note and keeps the note's old mtime; a crash
+/// there can sit in a vault today. So the sweep owns a prefix of its own, and
+/// never touches `.sf-tmp-*` (nor the TS writer's `.sf-tmp-<ms>-<n>`).
+pub(super) const TEMP_PURPOSE: &str = "wtmp";
+const TEMP_PREFIX: &str = ".sf-wtmp-";
+/// A case-only rename's stop on the way to its destination, named apart from the
+/// write temp so nothing mistakes the only copy of a note for litter.
 pub(super) const HOP_PURPOSE: &str = "hop";
 /// A save's temp lives from its create to its rename, milliseconds. One this old
 /// is a crash's leftover, so the margin is only about a stalled disk; a late
 /// sweep costs a hidden file for one more launch, an early one costs a save.
-const TEMP_PREFIX: &str = ".sf-tmp-";
 const STALE_TEMP_AGE_MS: i64 = 10 * 60 * 1000;
 
 static HIDDEN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -433,8 +436,8 @@ mod tests {
         let sub = root.join("Folder");
         fs::create_dir_all(&sub).unwrap();
         fs::write(root.join("Note.md"), "installed").unwrap();
-        let stale = write_temp(root, ".sf-tmp-4242-1-0", 2 * STALE_TEMP_AGE_MS);
-        let nested = write_temp(&sub, ".sf-tmp-4242-1-1", 2 * STALE_TEMP_AGE_MS);
+        let stale = write_temp(root, ".sf-wtmp-4242-1-0", 2 * STALE_TEMP_AGE_MS);
+        let nested = write_temp(&sub, ".sf-wtmp-4242-1-1", 2 * STALE_TEMP_AGE_MS);
 
         let _ = recover_parked_backups(root);
 
@@ -452,12 +455,31 @@ mod tests {
     fn recover_leaves_a_live_temp_and_a_rename_hop_alone() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        let young = write_temp(root, ".sf-tmp-4242-1-0", 1_000);
+        let young = write_temp(root, ".sf-wtmp-4242-1-0", 1_000);
         let hop = write_temp(root, ".sf-hop-4242-1-1", 2 * STALE_TEMP_AGE_MS);
 
         let _ = recover_parked_backups(root);
 
         assert!(young.exists());
         assert_eq!(fs::read_to_string(hop).unwrap(), "a copy of a note");
+    }
+
+    /// Older builds hopped a case-only rename through `.sf-tmp-…`; a crash
+    /// mid-hop leaves the note there with its old mtime, as the only copy.
+    #[test]
+    fn recover_never_touches_a_legacy_tmp_file_however_old() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let unix_name = write_temp(root, ".sf-tmp-4242-7", 30 * 24 * 60 * 60 * 1000);
+        let fallback_name = write_temp(
+            root,
+            ".sf-tmp-4242-1700000000000-7",
+            30 * 24 * 60 * 60 * 1000,
+        );
+
+        let _ = recover_parked_backups(root);
+
+        assert!(unix_name.exists());
+        assert!(fallback_name.exists());
     }
 }

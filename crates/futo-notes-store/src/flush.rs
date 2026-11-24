@@ -1,6 +1,7 @@
 //! The editor save verbs: `save` and `flush_draft`, with its recreate and conflict-park arms.
 
 use std::collections::HashSet;
+use std::sync::PoisonError;
 
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{vault_fs, vault_mutation_guard};
@@ -143,10 +144,7 @@ impl LocalNoteStore {
             // Converged is checked BEFORE the base comparison so a draft the
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
-            Ok(current) if current == content => Ok(FlushDraftResult {
-                disposition: FlushDisposition::Converged,
-                mutation: None,
-            }),
+            Ok(current) if current == content => self.converged_after_sync(id),
             Ok(current) if current == base => {
                 let metadata = self.write_draft_raw(id, content, None)?;
                 Ok(FlushDraftResult {
@@ -195,6 +193,29 @@ impl LocalNoteStore {
             Err(error) => Err(io_error(error)),
         }?;
         Ok(crate::MergedDraftResult { source, flush })
+    }
+
+    /// The draft is already on disk. That may be because a save installed it and
+    /// then failed its directory fsync, so acknowledging it takes one: without
+    /// it a retry would report a save durable that never was. When that failed
+    /// save was the reason, the shell never got its mutation, and this hands it
+    /// over; an ordinary converged flush still carries none.
+    fn converged_after_sync(&self, id: &str) -> Result<FlushDraftResult, String> {
+        vault_fs::sync_parent_local(&self.root, &note_filename(id))?;
+        let owed = self
+            .installed_not_durable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(id);
+        let mutation = if owed {
+            vault::metadata(&self.root, id).map(|metadata| self.upsert_mutation(metadata))
+        } else {
+            None
+        };
+        Ok(FlushDraftResult {
+            disposition: FlushDisposition::Converged,
+            mutation,
+        })
     }
 
     /// The flush's peer-delete arm: a dirty draft is edit-wins — recreate at
