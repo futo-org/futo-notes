@@ -23,7 +23,7 @@ itself (AGENTS.md, the justfile, the scripts, the docs).
    can only be fixed or verified with one, skip it and say so.
 4. **Never touch** `keys/`, the release or publish jobs in `.gitlab-ci.yml`, the
    CRITICAL guards in AGENTS.md (dev/prod data split, push-first sync, release
-   gate, hash/crypto), sync payloads, `BRIDGE_VERSION`, or `AppState`. A cut
+   gate, hash/crypto), sync payloads, or `AppState`. A cut
    that needs any of those is skipped with the reason "needs a human".
 5. **Never kill processes by name** and never send OS-level input. Both are
    denied by the repo's hooks; do not look for a way around a denial.
