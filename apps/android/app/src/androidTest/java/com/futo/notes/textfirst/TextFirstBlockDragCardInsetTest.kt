@@ -28,8 +28,16 @@ class TextFirstBlockDragCardInsetTest {
             PointF(loc[0] + r.centerX(), loc[1] + r.centerY() - view.scrollY)
         }
         // What the block draws in the note before it lifts: anything not the page's white within its rows, in the window.
-        val before = screenshot()
         val window = ui { IntArray(2).also(view.rootView::getLocationOnScreen) }
+        var before = screenshot()
+        // The block is drawn a frame or more after it is set up (a photo, once decoded; a software renderer takes longer):
+        // wait until the block shows ink where the finger presses (a photo: around its centre; text: along its row), in the
+        // shot that is the baseline.
+        val across = if (word != null) 0 until before.width step 2 else (from.x - 10).toInt()..(from.x + 10).toInt() step 2
+        compose.waitUntil(10_000) {
+            before = screenshot()
+            (-8..8 step 2).any { dy -> across.any { x -> before.getPixel(x, (from.y + dy).toInt()) != Color.WHITE } }
+        }
         down(from); hold(600)
         assertTrue("lifted", lifted)
         SystemClock.sleep(400)

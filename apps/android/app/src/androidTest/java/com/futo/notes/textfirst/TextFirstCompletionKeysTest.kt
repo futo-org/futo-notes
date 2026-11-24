@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.inputmethod.InputConnection
 import androidx.activity.ComponentActivity
@@ -37,7 +38,17 @@ class TextFirstCompletionKeysTest {
         compose.runOnUiThread { view.engine!!.hostSelect(5, 5) }
         compose.waitUntil(5_000) { readOnMainThread { view.selectionStart == 5 } }
         type(connection, "[", "[", "O", "t", "h")
-        compose.waitUntil(10_000) { shown("Other alpha") && shown("Other beta") }
+        // A keyboard that composes the word it sees at the caret (the emulator's AOSP one does, ~100 ms after the text)
+        // hides the list while that composition lasts (marked text hides the run), and a key sent meanwhile takes
+        // nothing. These are a hardware keyboard's keys, which compose nothing: end the keyboard's composition until the
+        // list has stood past the time it takes to answer.
+        var shownSince = 0L
+        compose.waitUntil(10_000) {
+            connection.handler!!.post { connection.finishComposingText() }
+            val now = SystemClock.uptimeMillis()
+            if (!(shown("Other alpha") && shown("Other beta"))) shownSince = 0L else if (shownSince == 0L) shownSince = now
+            shownSince != 0L && now - shownSince >= 600
+        }
     }
 
     private fun inserted(view: TextFirstEditText, label: String) {

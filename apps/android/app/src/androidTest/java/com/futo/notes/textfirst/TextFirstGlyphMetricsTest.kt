@@ -245,9 +245,10 @@ class TextFirstGlyphMetricsTest {
                 // The body starts after the marker unit.
                 val at = view.layout.getPrimaryHorizontal(1)
                 val indent = if (rtl) view.layout.width - at else at
-                assertEquals("$kind depth$depth rtl$rtl: bounded native body indent", expected.toFloat(), indent, 0f)
+                // The indent is a whole number of pixels; the layout reads positions back in 1/256 px and can land a hair under it.
+                assertEquals("$kind depth$depth rtl$rtl: bounded native body indent", expected.toFloat(), indent, 1f / 128)
                 assertEquals("$kind depth$depth: a short phrase still fits", first.length, view.layout.getLineEnd(0))
-                assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(first.length), 0f)
+                assertEquals("physical continuation hangs at the same body column", at, view.layout.getPrimaryHorizontal(first.length), 1f / 128)
                 // Inside the band the selection is drawn on (overlayBand).
                 val y = view.totalPaddingTop + view.overlayBand(view.layout, view.editableText, 0).first.toInt() + 2
                 val lead = look.textSizePx * (normal * 1.4f + compact * 0.7f) - look.listIndent
