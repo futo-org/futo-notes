@@ -194,3 +194,29 @@ describe('registered verbs', () => {
     expect(runPuppetCommand('do', { verb: 'Gone', args: {} }).status).toBe(404);
   });
 });
+
+describe('verb records', () => {
+  it('a pending verb record keeps its password out of what diff answers', async () => {
+    // A ConnectSync still running at the CLI's ceiling is written to the trace file
+    // as this record; the verb itself must still get the password.
+    let finish = (): void => {};
+    const seen: unknown[] = [];
+    registerPuppetVerbs(() => [
+      puppetVerb('ConnectSync', { url: 'string?', password: 'string?' }, (args) => {
+        seen.push(args.password);
+        return new Promise<void>((resolve) => (finish = resolve));
+      }),
+    ]);
+    const accepted = runPuppetCommand('do', {
+      verb: 'ConnectSync',
+      args: { url: 'http://qa.test', password: 'hunter2' },
+    }).body as { action: number };
+    await settled();
+    const pending = runPuppetCommand('diff', { action: accepted.action }).body;
+    expect(pending).toMatchObject({ pending: true });
+    expect(JSON.stringify(pending)).not.toContain('hunter2');
+    expect(seen).toEqual(['hunter2']);
+    finish();
+    await settled();
+  });
+});

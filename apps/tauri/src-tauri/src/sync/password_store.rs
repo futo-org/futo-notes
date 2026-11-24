@@ -36,6 +36,13 @@ use tauri::AppHandle;
 
 use crate::background_tasks::blocking;
 
+// Not compiled into release builds (tests excepted, for the fake store).
+#[cfg(any(debug_assertions, test))]
+mod qa_store;
+mod stale_keyring;
+
+use stale_keyring::resolve_store;
+
 const KEYRING_SERVICE: &str = "FUTO Notes E2EE sync";
 
 /// Abstracts the OS secret store so the command logic is testable without a
@@ -75,6 +82,23 @@ impl SecretStore for KeyringStore {
             Err(e) => Err(e.to_string()),
         }
     }
+}
+
+/// Whether an access only reads the store or changes it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Access {
+    Read,
+    Write,
+}
+
+/// The store every command and the engine's `VaultSecrets` port go through
+/// for `root`'s secrets.
+fn secret_store(root: &Path, access: Access) -> Result<&'static dyn SecretStore, String> {
+    #[cfg(debug_assertions)]
+    let qa = qa_store::from_env();
+    #[cfg(not(debug_assertions))]
+    let qa = None;
+    resolve_store(qa, &KeyringStore, root, access)
 }
 
 fn account_for(root: &Path) -> String {
@@ -152,7 +176,8 @@ fn session_token_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(),
     store.delete(&session_token_account_for(root))
 }
 
-/// This vault's hosted secrets in the OS keyring, as the engine's port.
+/// This vault's hosted secrets in the OS keyring (or the debug-only QA memory
+/// store), as the engine's port.
 ///
 /// One instance is scoped to one notes root, which is what keeps the debug
 /// (`fake-notes`) and production (`futo-notes`) vaults — and every worktree's
@@ -173,27 +198,27 @@ impl KeyringVaultSecrets {
 
 impl futo_notes_sync::VaultSecrets for KeyringVaultSecrets {
     fn vault_key(&self) -> Result<Option<[u8; VAULT_KEY_BYTES]>, String> {
-        vault_key_get_impl(&KeyringStore, &self.root)
+        vault_key_get_impl(secret_store(&self.root, Access::Read)?, &self.root)
     }
 
     fn set_vault_key(&self, key: &[u8; VAULT_KEY_BYTES]) -> Result<(), String> {
-        vault_key_set_impl(&KeyringStore, &self.root, key)
+        vault_key_set_impl(secret_store(&self.root, Access::Write)?, &self.root, key)
     }
 
     fn delete_vault_key(&self) -> Result<(), String> {
-        vault_key_delete_impl(&KeyringStore, &self.root)
+        vault_key_delete_impl(secret_store(&self.root, Access::Write)?, &self.root)
     }
 
     fn session_token(&self) -> Result<Option<String>, String> {
-        session_token_get_impl(&KeyringStore, &self.root)
+        session_token_get_impl(secret_store(&self.root, Access::Read)?, &self.root)
     }
 
     fn set_session_token(&self, token: &str) -> Result<(), String> {
-        session_token_set_impl(&KeyringStore, &self.root, token)
+        session_token_set_impl(secret_store(&self.root, Access::Write)?, &self.root, token)
     }
 
     fn delete_session_token(&self) -> Result<(), String> {
-        session_token_delete_impl(&KeyringStore, &self.root)
+        session_token_delete_impl(secret_store(&self.root, Access::Write)?, &self.root)
     }
 
     /// The same per-vault entry the `e2ee_password_*` commands read and write —
@@ -201,71 +226,51 @@ impl futo_notes_sync::VaultSecrets for KeyringVaultSecrets {
     /// credential on this machine, on every platform at once rather than three
     /// times over.
     fn delete_sync_password(&self) -> Result<(), String> {
-        delete_impl(&KeyringStore, &self.root)
+        delete_impl(secret_store(&self.root, Access::Write)?, &self.root)
     }
 }
 
 #[tauri::command]
 pub async fn e2ee_password_get(app: AppHandle) -> Result<Option<String>, String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || get_impl(&KeyringStore, &root)).await
+    blocking(move || get_impl(secret_store(&root, Access::Read)?, &root)).await
 }
 
 #[tauri::command]
 pub async fn e2ee_password_set(app: AppHandle, password: String) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || set_impl(&KeyringStore, &root, &password)).await
+    blocking(move || set_impl(secret_store(&root, Access::Write)?, &root, &password)).await
 }
 
 #[tauri::command]
 pub async fn e2ee_password_delete(app: AppHandle) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || delete_impl(&KeyringStore, &root)).await
+    blocking(move || delete_impl(secret_store(&root, Access::Write)?, &root)).await
 }
 
 #[tauri::command]
 pub async fn e2ee_session_token_get(app: AppHandle) -> Result<Option<String>, String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || session_token_get_impl(&KeyringStore, &root)).await
+    blocking(move || session_token_get_impl(secret_store(&root, Access::Read)?, &root)).await
 }
 
 #[tauri::command]
 pub async fn e2ee_session_token_set(app: AppHandle, token: String) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || session_token_set_impl(&KeyringStore, &root, &token)).await
+    blocking(move || session_token_set_impl(secret_store(&root, Access::Write)?, &root, &token))
+        .await
 }
 
 #[tauri::command]
 pub async fn e2ee_session_token_delete(app: AppHandle) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    blocking(move || session_token_delete_impl(&KeyringStore, &root)).await
+    blocking(move || session_token_delete_impl(secret_store(&root, Access::Write)?, &root)).await
 }
 
 #[cfg(test)]
 mod tests {
+    use super::qa_store::MemoryStore as MemStore;
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct MemStore(Mutex<HashMap<String, String>>);
-
-    impl SecretStore for MemStore {
-        fn get(&self, account: &str) -> Result<Option<String>, String> {
-            Ok(self.0.lock().unwrap().get(account).cloned())
-        }
-        fn set(&self, account: &str, secret: &str) -> Result<(), String> {
-            self.0
-                .lock()
-                .unwrap()
-                .insert(account.to_owned(), secret.to_owned());
-            Ok(())
-        }
-        fn delete(&self, account: &str) -> Result<(), String> {
-            self.0.lock().unwrap().remove(account);
-            Ok(())
-        }
-    }
 
     // Exercises the REAL OS keyring backend end-to-end. `#[ignore]` so the
     // normal/CI test run never touches the live Secret Service / Keychain —

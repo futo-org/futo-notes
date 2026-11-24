@@ -21,10 +21,10 @@ describe('Tauri slot lease', () => {
       'utf8',
     );
     const launch = instructions.slice(
-      instructions.indexOf('(cd "$WORKTREE_ROOT" && just tauri-dev)'),
+      instructions.indexOf('(cd "$WORKTREE_ROOT" && FUTO_QA_EPHEMERAL_SECRETS=1 just tauri-dev)'),
       instructions.indexOf('### Discover the MCP bridge port'),
     );
-    expect(launch).toContain('(cd "$WORKTREE_ROOT" && just tauri-dev)');
+    expect(launch).toContain('(cd "$WORKTREE_ROOT" && FUTO_QA_EPHEMERAL_SECRETS=1 just tauri-dev)');
     expect(launch).not.toContain('cargo tauri dev');
     const launcher = readFileSync(new URL('../tauri-dev.mjs', import.meta.url), 'utf8');
     expect(launcher).toContain('const identifier = devBundleId(repoRoot);');

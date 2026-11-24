@@ -133,7 +133,9 @@ if [ "$ALREADY_RUNNING" = false ]; then
   # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
   # default (~/Documents/fake-notes) is machine-global and would be shared
   # by parallel sessions.
-  (cd "$WORKTREE_ROOT" && just tauri-dev) > "$TAURI_LOG" 2>&1 &
+  # FUTO_QA_EPHEMERAL_SECRETS=1 keeps sync secrets in process memory (see
+  # "Keychain prompts (macOS)" below). QA launches set it; a plain `just tauri-dev` does not.
+  (cd "$WORKTREE_ROOT" && FUTO_QA_EPHEMERAL_SECRETS=1 just tauri-dev) > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build ~60s; rebuilds ~20s.
 fi
@@ -167,6 +169,24 @@ echo "Using MCP bridge port: $MCP_PORT"
 the loop cannot settle on the release app or on a sibling worktree's instance.
 Run it once by hand (`node scripts/qa-target.mjs list`) if the loop finds
 nothing — the refusal reason tells you what is actually running.
+
+### Keychain prompts (macOS)
+
+A rebuilt dev binary has a new code signature, so macOS asks "wants to use your
+confidential information stored in 'FUTO Notes E2EE sync'" the next time it
+touches an item an earlier build saved — and the QA leg hangs on a dialog nobody
+is there to answer. `FUTO_QA_EPHEMERAL_SECRETS=1` (set by the launch above) makes
+a **debug** build keep the vault password, vault key and session token in process
+memory instead of the keyring (`apps/tauri/src-tauri/src/sync/password_store.rs`).
+It is compiled out of release builds and never writes a secret to disk. Consequence: sync
+credentials do not survive a relaunch, so the app asks for the password again —
+reconnect with `ConnectSync` or `window.__testSync.connect(url, password)`. A QA
+run that connects, signs out or forgets leaves `.qa-stale-keyring` in the vault,
+and the next launch without the variable deletes that vault's keyring entries
+before reading them, so it asks for the password too. Any
+other QA launch (including a hand-written `cargo tauri dev`) must set it too, and
+a story that is *about* the keyring (saved-password persistence across a
+relaunch) must launch without it.
 
 ### Interact
 
