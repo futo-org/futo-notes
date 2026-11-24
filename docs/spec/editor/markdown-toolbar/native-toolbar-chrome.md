@@ -75,12 +75,14 @@
   EditorToolbar.swift, EditorToolbarLayoutTests.swift
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
-  On the native shells the toolbar's Camera/Image buttons reach the host
-  picker (web toolbar posts `pickImage`; the native iOS/Android toolbars
-  invoke it directly), which presents the native picker (Photo Picker / camera intent
-  on Android; PHPicker on iOS, camera falling back to the library on the
-  simulator), saves the bytes into the vault root under a generated
-  space-free name, and calls `insertImage` back into the embed.
+  Tapping either takes the editor session's image claim at that moment, then
+  presents the native picker (Photo Picker / camera intent on Android; PHPicker
+  on iOS, camera falling back to the library on the simulator). The chosen image
+  is saved into the vault root under a generated space-free `image-<time>` name
+  and inserted through the session's `insert_image` at the claimed note; an
+  insertion the session refuses (the note closed or reopened) deletes the file it
+  just saved. → TextFirstEditorController+ImageInsert.swift, EditorImages.swift,
+  textfirst/TextFirstImages.kt, ImagePicker.kt
 - _(Android)_ Camera asks for the `CAMERA` permission at the moment of use,
   because the manifest declares it for pairing and Android then refuses the
   camera intent without it. Granted, the system camera opens; a first refusal
