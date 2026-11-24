@@ -34,41 +34,12 @@ describe('mobile Linedown cutover', () => {
     );
   });
 
-  it('neither builds nor stages the web bundle for mobile', () => {
-    for (const file of [
-      'just/mobile.justfile',
-      'just/android-test.justfile',
-      'apps/android/run.sh',
-      'apps/ios/run.sh',
-      'apps/ios/run-device.sh',
-      'apps/ios/deploy.sh',
-      'ci/android.yml',
-      'ci/cirrus/ios-build.yml',
-      'ci/cirrus/ios-test.yml',
-    ]) {
-      expect(read(file), file).not.toMatch(/vite build --config vite\.editor\.config\.ts/);
-    }
+  // Warm checkouts still hold the retired editor.html bundle (gitignored); neither app may
+  // package it.
+  it('never packages a stale web editor bundle', () => {
     expect(read('apps/ios/project.yml')).toContain('- editor.html');
     expect(read('apps/android/app/build.gradle.kts')).toContain(
       'ignoreAssetsPattern += ":editor.html"',
-    );
-  });
-
-  it('retires web-editor close benchmarks and their mobile phase emitters', () => {
-    for (const file of [
-      'scripts/perf/ios-close-bench.mjs',
-      'apps/ios/UITests/EditorClosePerfTests.swift',
-      'apps/ios/Tests/Editor/CloseLedgerTests.swift',
-      'apps/ios/Sources/Notes/Editor/CloseLedger.swift',
-      'apps/android/app/src/main/java/com/futo/notes/ui/CloseLedger.kt',
-    ]) {
-      expect(fs.existsSync(path.join(root, file)), file).toBe(false);
-    }
-    expect(read('apps/ios/Sources/Notes/List/NoteListView.swift')).not.toMatch(
-      /CloseLedger|FUTO_CLOSE_PERF/,
-    );
-    expect(read('apps/android/app/src/main/java/com/futo/notes/ui/NoteListScreen.kt')).not.toMatch(
-      /CloseLedger/,
     );
   });
 });

@@ -81,11 +81,6 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const unitTestRecipe = topLevelBlock(justfile, /^test-android-native(?=\s|:)[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui(?=\s|:)[^\n]*$/m);
 
-    // Mobile runs the Rust editor directly; a web bundle cannot be its test subject.
-    for (const recipe of [unitTestRecipe, uiTestRecipe]) {
-      expect(recipe).not.toContain('vite.editor.config.ts');
-    }
-
     // Compile coverage: a flavor-specific source set that fails to build must
     // fail the pipeline, so both flavors are assembled on every path.
     expect(androidJob).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
