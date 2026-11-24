@@ -2,12 +2,16 @@
 
 use tauri::Manager;
 
+#[cfg(target_os = "linux")]
+mod xwayland_scale;
+
 pub(crate) fn prepare_process() {
     #[cfg(unix)]
     raise_fd_limit();
     #[cfg(target_os = "linux")]
     {
         configure_linux_display_backend();
+        xwayland_scale::correct_xwayland_scale();
         configure_linux_renderer();
         install_linux_log_filters();
     }
@@ -230,6 +234,24 @@ fn configure_linux_display_backend() {
     if std::env::var_os("GDK_BACKEND").is_none() {
         std::env::set_var("GDK_BACKEND", LINUX_DEFAULT_GDK_BACKEND);
     }
+}
+
+/// Under X11 GTK sizes windows in screen pixels, while the page's CSS pixels grow with the
+/// desktop's font DPI (or the XWayland correction's `GDK_DPI_SCALE`). The configured window
+/// size and minimum are CSS sizes, so on Linux they grow by the same factor: at 1.6x the first
+/// window is 1200×800 CSS pixels, not 750×500. A size the window-state plugin saved still wins.
+#[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+pub(crate) fn with_screen_sized_windows(mut context: tauri::Context) -> tauri::Context {
+    #[cfg(target_os = "linux")]
+    if let Some(factor) = xwayland_scale::x11_css_scale() {
+        for window in &mut context.config_mut().app.windows {
+            window.width *= factor;
+            window.height *= factor;
+            window.min_width = window.min_width.map(|width| width * factor);
+            window.min_height = window.min_height.map(|height| height * factor);
+        }
+    }
+    context
 }
 
 #[cfg(target_os = "linux")]

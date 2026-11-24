@@ -180,7 +180,9 @@ pub(crate) fn run() {
             crate::editor_host::editor_note_ids,
             crate::editor_host::editor_hold_saves,
         ])
-        .build(tauri::generate_context!())
+        .build(crate::platform_integration::with_screen_sized_windows(
+            tauri::generate_context!(),
+        ))
         .expect("error while building tauri application")
         .run(|_app, _event| {
             // Release the editor lease after a final save.

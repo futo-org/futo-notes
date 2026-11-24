@@ -2251,6 +2251,8 @@ dependencies = [
  "tauri-plugin-window-state",
  "time",
  "trash",
+ "wayland-client",
+ "wayland-protocols",
  "webkit2gtk",
  "webview2-com",
  "windows",
