@@ -3,9 +3,10 @@
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
 # (futo-notes-ffi via UniFFI). On tags this builds the release Android app; on
-# default-branch pushes it builds both flavors' debug APKs. Every run also runs
-# the JVM unit tests and the instrumentation suite on a CI emulator
-# (scripts/ci-android-instrumentation.sh, connectedDirectDebugAndroidTest).
+# default-branch pushes that touch its `changes:` paths it builds both flavors'
+# debug APKs. Every run also runs the JVM unit tests and the instrumentation
+# suite on a CI emulator (scripts/ci-android-instrumentation.sh,
+# connectedDirectDebugAndroidTest).
 # ─────────────────────────────────────────────────────────────
 
 build:android-native:
