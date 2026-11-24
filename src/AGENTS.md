@@ -48,16 +48,15 @@ The dev-only `window.__testSync` hooks and the MCP bridge are documented once, i
 
 - **Playwright E2E**: `tests/*.spec.ts` — covers search, sync, shell flows. Desktop editor behaviour is covered by Puppet stories (`tests/desktop-editor-*-stories.mjs`) and unit tests under `src/features/editor/desktop/`.
 - **Unit tests**: co-located `*.test.ts` files under each owning feature; platform and generic utility tests remain under `src/lib/`.
-- **Regression tests**: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting).
 
 ## Verification (Required)
 
-| What changed    | Run                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------- |
-| Components / UI | `just build` → `pnpm run test:e2e:smoke` + the targeted spec                                             |
-| lib/ logic      | `just build` → `just test-unit`                                                                          |
-| CSS / Tailwind  | `just build` → visual spot-check via screenshot                                                          |
-| Editor behavior | Above + the matching `tests/desktop-editor-*-stories.mjs` Puppet story + manual test in `just tauri-dev` |
+| What changed    | Run                                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| Components / UI | `just build` → the targeted spec (`pnpm exec playwright test tests/<spec>`), or the desktop editor stories |
+| lib/ logic      | `just build` → `just test-unit`                                                                            |
+| CSS / Tailwind  | `just build` → visual spot-check via screenshot                                                            |
+| Editor behavior | Above + the matching `tests/desktop-editor-*-stories.mjs` Puppet story + manual test in `just tauri-dev`   |
 
 Writing the tests:
 

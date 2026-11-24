@@ -18,7 +18,6 @@ the harness helpers themselves and run under Vitest.
 runtime conflicts with Playwright's).
 
 ```bash
-just test-e2e          # the P0 regression spec — the smoke run
 just test-e2e-rest     # exactly what CI's test:e2e:rest job runs
 pnpm run test:e2e:full # every dev-server spec
 pnpm exec playwright test tests/search.spec.ts      # one spec
@@ -34,7 +33,7 @@ do not supply missing Linux system libraries. Use the Linux host's supported pac
 prepared test host for those dependencies; a Chromium pass does not prove WebKit behavior.
 
 On a Linux host with rootless Podman, run
-`just test-browser-container webkit tests/p0-regressions.spec.ts` instead. This uses the
+`just test-browser-container webkit tests/search.spec.ts` instead. This uses the
 [official Playwright image](https://playwright.dev/docs/docker) at the exact installed package
 version, supplying matching browsers and system libraries without installing host packages.
 The first run may download a large image; cached images are retained. `chromium` and `firefox`

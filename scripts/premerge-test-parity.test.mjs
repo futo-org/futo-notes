@@ -41,10 +41,8 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
-  it('runs the P0 spec inside test:e2e:rest, not as a second CI job', () => {
-    // The quick local script stays, but CI has one job for the whole suite, so
-    // nothing may exclude the spec from it or re-add a standalone job.
-    expect(packageScripts['test:e2e:smoke']).toBe('playwright test tests/p0-regressions.spec.ts');
+  it('runs the web suite as one CI job', () => {
+    // Nothing may exclude a spec from it or re-add a standalone smoke job.
     expect(packageScripts['test:e2e:rest']).not.toContain('--grep-invert');
     expect(gitlabPipeline).not.toMatch(/^test:e2e:smoke:/m);
     expect(topLevelBlock(gitlabPipeline, /^release:gate:$/m)).not.toContain('test:e2e:smoke');

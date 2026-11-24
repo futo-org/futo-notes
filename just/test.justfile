@@ -12,10 +12,6 @@ test-unit *args: editor-deps
   node scripts/build-editor-wasm.mjs
   node_modules/.bin/vitest run "$@"
 
-# Run the quick P0 crash/IME Playwright spec (CI runs it inside test:e2e:rest).
-test-e2e:
-  pnpm run test:e2e:smoke
-
 # Install browsers matching this worktree's Playwright lockfile (Chromium by default).
 browser-install *browsers='chromium':
   PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm exec playwright install "$@"

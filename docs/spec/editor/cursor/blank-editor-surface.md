@@ -21,7 +21,7 @@
   src/features/editor/desktop/desktopEditor.css `.desktop-editor`
 - An empty note is therefore fully typeable: it holds one empty paragraph, and
   a press ANYWHERE in the note area places the caret in it. This is the state
-  every new note starts in. → tests/p0-regressions.spec.ts "Empty-note caret"
+  every new note starts in. → tests/desktop-editor-pointer-stories.mjs
 - A press on the chrome around the editor, where the arrow cursor shows (the
   title row's slack, the tag bar's blank space), takes focus off the editor: its
   caret goes, keys typed next do not reach the note, and a pending title rename

@@ -18,5 +18,4 @@ native shells edit tags as text in the body, which is not a gap.
   platform, whether the edit came from the keyboard or from the desktop tag bar
   (which writes through the engine's header tag commands: desktop/tags.md). The
   engine keeps the note's own bytes, so nothing a save writes is escaped or
-  re-spelled (portable-core/linedown.md). →
-  tests/tags.spec.ts "Tag input normalizes case and spaces before creating"
+  re-spelled (portable-core/linedown.md). → crates/futo-notes-editor/tests/fixtures/linedown/inline.json

@@ -91,8 +91,7 @@ async function main() {
     await sleep(1_000);
 
     // `.desktop-editor` is the contenteditable the desktop editor mounts
-    // (src/features/editor/desktop/view.ts; the same selector
-    // tests/lib/desktopEditor.ts's EDITOR constant uses for the Playwright specs).
+    // (src/features/editor/desktop/view.ts).
     let editorFound = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       const editorCheck = await send(ws, 'execute_js', {
