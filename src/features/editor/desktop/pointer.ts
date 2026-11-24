@@ -15,6 +15,7 @@ import type { DisplayRange } from '@futo-notes/editor/wasm-payloads';
 import { TASK_BOX_CLASS } from './atomElements';
 import { pressCodeBlock } from './codeBlockPress';
 import type { Hit } from './hitTest';
+import { lineRowSizesOf, lineRows } from './lineRowAt';
 import { scrollerOf } from './paneScroll';
 import { pressTableFiller } from './tableFillerPress';
 import type { EditorView } from './view';
@@ -154,9 +155,14 @@ export class EditorPointer {
       origin.append(this.dropCaret);
     }
     const base = origin.getBoundingClientRect();
-    const line = view.lineElements()[view.lineAt(offset)].getBoundingClientRect();
+    const element = view.lineElements()[view.lineAt(offset)];
+    const line = element.getBoundingClientRect();
+    // An empty line draws no glyph box: the caret spans its rows, never its padding (a
+    // heading's space above it).
+    const rows = lineRows(element, line, lineRowSizesOf(element, line));
     const rect =
-      view.caretSide.clientRect(offset, rowEnd) ?? new DOMRect(line.left, line.top, 0, line.height);
+      view.caretSide.clientRect(offset, rowEnd) ??
+      new DOMRect(line.left, rows.top, 0, rows.bottom - rows.top);
     const style = this.dropCaret.style;
     style.transform = `translate(${rect.left - base.left}px, ${rect.top - base.top}px)`;
     style.height = `${rect.height}px`;

@@ -152,10 +152,12 @@ export class EditorHitTest {
     // The middle of a row next to this one: a row's edge pixel can hit the line beside it.
     let y = down ? row.bottom + row.height / 2 : row.top - row.height / 2;
     const index = view.lineAt(from);
-    const box =
-      tableCellTextBox(elements[index], from - lines[index].start) ??
-      elements[index].getBoundingClientRect();
-    if (down ? y >= box.bottom : y < box.top) {
+    const cell = tableCellTextBox(elements[index], from - lines[index].start);
+    const box = cell ?? elements[index].getBoundingClientRect();
+    // Up from a line's first row leaves it once past its rows' top, so a target in its top
+    // padding (a heading's space, a picture's gap) is on the line above.
+    const top = cell ? box.top : rowsOf(elements[index], box).top;
+    if (down ? y >= box.bottom : y < top) {
       // The next line drawn: a table's delimiter row has no height.
       let nextIndex = index + (down ? 1 : -1);
       while (elements[nextIndex]?.getBoundingClientRect().height === 0) nextIndex += down ? 1 : -1;
@@ -168,10 +170,13 @@ export class EditorHitTest {
       // Half the next line's row past this row's edge, never half this row's: rows differ in
       // height (a heading's, a picture's), and a taller one would reach past the next line's
       // first row.
-      const near = tableCellTextBoxAt(next, x) ?? next.getBoundingClientRect();
+      const nearCell = tableCellTextBoxAt(next, x);
+      const near = nearCell ?? next.getBoundingClientRect();
       const half = rowHeightOf(next, near) / 2;
+      // Down into a line goes past its top padding (a heading's space) to its first row.
+      const nearTop = nearCell ? near.top : rowsOf(next, near).top;
       y = down
-        ? Math.max(row.bottom + half, near.top + half)
+        ? Math.max(row.bottom + half, nearTop + half)
         : Math.min(row.top - half, near.bottom - half);
     }
     const scroller = scrollerOf(view.dom);

@@ -1,7 +1,7 @@
 /* The desktop editor surface (view.ts). Every row of text is one line unit tall (--line),
  * blank lines included, with no margins between blocks but a code block's header and gap
- * (desktopCodeBlocks.css); anything taller is a whole number of lines, but for a first- and
- * second-level heading's rows (30px, 28px). Plus Jakarta Sans 16px on a 24px line
+ * (desktopCodeBlocks.css) and a heading's space above it; anything taller is a whole number
+ * of lines, but for a first- and second-level heading's rows (30px, 28px). Plus Jakarta Sans 16px on a 24px line
  * (src/styles/desktop-fonts.css). `.note-body` is the scroller, so the surface is a plain box
  * at least its container's height (docs/spec/editor/cursor/blank-editor-surface.md). */
 .desktop-editor-wrap {
@@ -67,10 +67,21 @@
   background: var(--color-selection, #ffe4d1);
 }
 
-/* The redesign's heading sizes and weights. A heading has no space of its own above or below
- * it (a blank line makes space): a first- or second-level heading's rows are 1.25 times its
- * font size, as Android draws them, the second's rounded up to a whole pixel so the lines
- * under it stay on whole pixels; the others' are one line unit. */
+/* A heading has half a line of space above its rows, as its top padding (the rows sit below
+ * it, as under a picture's gap), but none at the very top of the note; below it, a blank line
+ * makes space. */
+.desktop-editor .line.heading,
+.desktop-editor .line.heading.picture-line.gap-above {
+  padding-top: 12px;
+}
+
+.desktop-editor > .chunk:first-child > .line.heading:first-child {
+  padding-top: 0;
+}
+
+/* The redesign's heading sizes and weights: a first- or second-level heading's rows are 1.25
+ * times its font size, as Android draws them, the second's rounded up to a whole pixel so the
+ * lines under it stay on whole pixels; the others' are one line unit. */
 .desktop-editor .h1 {
   font-size: 24px;
   font-weight: 700;

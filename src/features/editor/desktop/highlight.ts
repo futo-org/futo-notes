@@ -134,11 +134,10 @@ export function selectedBands(
         if (table.box) bands.push(bandOf(table.box, base));
         continue;
       }
-      let sizes = rowSizes.get(element.className);
-      if (sizes === undefined) {
-        sizes = lineRowSizesOf(element, box);
-        rowSizes.set(element.className, sizes);
-      }
+      // The note's first line is sized apart: a heading there has no space above it.
+      const sizesKey = index === 0 ? `first ${element.className}` : element.className;
+      let sizes = rowSizes.get(sizesKey);
+      if (!sizes) rowSizes.set(sizesKey, (sizes = lineRowSizesOf(element, box)));
       const lineRowsOf = lineRows(element, box, sizes);
       const rowAt = (y: number) => lineRowAt(lineRowsOf, y);
       // Each selected row's horizontal extent, by row.

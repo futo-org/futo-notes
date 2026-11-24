@@ -1,7 +1,8 @@
 // The desktop editor's rows in body text and headings: the four inline formats drawn from the
 // engine's runs (lineElements.ts `drawLine`) in both, read back through `show {"text"}`'s
-// `formats`; a first-level heading's rows 30px and a second-level one's 28px, with no space
-// around a heading (desktopEditor.css), and Up, Down and a selection across a heading.
+// `formats`; a first-level heading's rows 30px and a second-level one's 28px, with 12px above a
+// heading but at the note's top and none below (desktopEditor.css), and Up, Down and a selection
+// across a heading.
 // Content comes in through Paste.
 // `node tests/desktop-editor-heading-stories.mjs [filter]` runs the stories whose name holds it.
 import assert from 'node:assert/strict';
@@ -22,6 +23,8 @@ import {
 /** A first-level heading's row and a second-level one's, px (desktopEditor.css). */
 const H1_ROW = 30;
 const H2_ROW = 28;
+/** The space above a heading but the note's first line, px (desktopEditor.css). */
+const HEADING_GAP = 12;
 
 await story(
   'the four formats draw in body text and headings, inline code keeping its row height',
@@ -62,27 +65,32 @@ await story(
 /** The line element `text` shows in. */
 const lineOf = (text) => lineAndBandsAt(shownText(text).rect.x + 1, rowMiddleOf(text)).line;
 
-await story('heading rows are 1.25 times their font, with no space around a heading', () =>
+await story('heading rows are 1.25 times their font, with space above a heading only', () =>
   inScratchNote(async () => {
     const long = 'a first level heading long enough to wrap '.repeat(6).trim();
     pasted(`# One\n## Two\nunder two\n### Three\nunder three\n# ${long}\nafter`);
     const one = lineOf('One');
     const two = lineOf('Two');
     const three = lineOf('Three');
-    assertNear(one.h, H1_ROW, 'a first-level heading row');
-    assertNear(two.h, H2_ROW, 'a second-level heading row');
-    assertNear(three.h, 24, 'a third-level heading row: one line unit');
+    // The note's first line has no space above it; every other heading has its gap.
+    assertNear(one.h, H1_ROW, 'a first-level heading row, first in the note');
+    assertNear(two.h, HEADING_GAP + H2_ROW, 'a second-level heading row under its gap');
+    assertNear(three.h, HEADING_GAP + 24, 'a third-level heading row: one line unit');
     assertNear(rowMiddleOf('One') - one.y, H1_ROW / 2, "a first-level heading's text centred");
-    assertNear(rowMiddleOf('Two') - two.y, H2_ROW / 2, "a second-level heading's text centred");
-    // Each line starts where the one above ends.
+    assertNear(
+      rowMiddleOf('Two') - two.y,
+      HEADING_GAP + H2_ROW / 2,
+      "a second-level heading's text centred in its row",
+    );
+    // Each line starts where the one above ends: the gap is the heading's own.
     assertNear(two.y, one.y + one.h, 'under a first-level heading');
     assertNear(lineOf('under two').y, two.y + two.h, 'under a second-level heading');
     assertNear(lineOf('under three').y, three.y + three.h, 'under a third-level heading');
     // A wrapped first-level heading: a whole number of its rows, two or more.
     const wrapped = lineOf('first level');
-    const rows = Math.round(wrapped.h / H1_ROW);
+    const rows = Math.round((wrapped.h - HEADING_GAP) / H1_ROW);
     assert.ok(rows >= 2, `the long heading wraps: ${wrapped.h}px`);
-    assertNear(wrapped.h, rows * H1_ROW, 'a wrapped first-level heading');
+    assertNear(wrapped.h, HEADING_GAP + rows * H1_ROW, 'a wrapped first-level heading');
     assertNear(lineOf('after').y, wrapped.y + wrapped.h, 'under a wrapped heading');
   }),
 );
@@ -108,6 +116,35 @@ await story('Up, Down and a selection cross a heading as one line', () =>
     const [headBand] = lineAndBandsAt(x, rowMiddleOf('Head')).bands.map((band) => JSON.parse(band));
     assert.ok(headBand, 'a band on the heading');
     assertNear(headBand.y + headBand.h, plainRow.y, "the heading's band meets the next line's");
+  }),
+);
+
+await story("Up from a heading's first row leaves its space for the line above", () =>
+  inScratchNote(async () => {
+    // A third-level heading's row is one line unit, so Up's target is its gap's top edge.
+    pasted('above\n### Three\nunder');
+    const line = () => read('state').editor.selection.line;
+    act('do', 'PlaceCaret', { at: 8 });
+    assert.equal(line(), 2, 'on the heading');
+    act('press', { key: 'ArrowUp' });
+    assert.equal(line(), 1, 'Up to the line above');
+    act('press', { key: 'ArrowDown' });
+    act('press', { key: 'ArrowDown' });
+    act('press', { key: 'ArrowUp' });
+    assert.equal(line(), 2, 'Up from under the heading back onto it');
+  }),
+);
+
+await story("a selection across two headings starts each band below the heading's space", () =>
+  inScratchNote(async () => {
+    pasted('# First\n# Second\nafter');
+    act('do', 'Select', { from: 0, to: 14 });
+    const second = lineOf('Second');
+    const x = shownText('Second').rect.x + 2;
+    const [band] = lineAndBandsAt(x, rowMiddleOf('Second')).bands.map((b) => JSON.parse(b));
+    assert.ok(band, 'a band on the second heading');
+    assertNear(band.y, second.y + HEADING_GAP, "the second heading's band, under its gap");
+    assertNear(band.h, H1_ROW, "the second heading's band, one row");
   }),
 );
 

@@ -13,7 +13,8 @@ no image rule of its own. Pasting and dropping an image: [paste.md](paste.md).
   line's text column. → src/features/editor/desktop/pictureElements.ts, desktopImages.css
 - A line holding only pictures is a block, spaced as a code block is: no page against ordinary
   text, and 4px from a picture line, code block or table right above or below it (the code
-  block's touching: one block's last line right over the other's first). The gap is the
+  block's touching: one block's last line right over the other's first), a heading's 12px
+  above it instead when the picture line is a heading. The gap is the
   picture line's own padding, never a margin, so a press in it lands on that line, and in it
   over a picture selects that picture; between two picture lines the lower one carries it. A
   picture in a table cell keeps 4px from the row's rules. → blockNeighbours.ts,

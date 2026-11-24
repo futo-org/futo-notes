@@ -8,7 +8,7 @@ DOM, one element per display line; it holds no Markdown rules of its own.
   lists, tasks, quotes and dividers draw as blocks.md says. Every row is one line unit tall
   (Plus Jakarta Sans 16px on a 24px line), blank lines included, with no margins between
   blocks; anything taller takes a whole number of lines, but for a first- and second-level
-  heading's rows. A tab is 2em wide. →
+  heading's rows and a heading's space above it. A tab is 2em wide. →
   src/features/editor/desktop/view.ts, src/features/editor/desktop/desktopEditor.css, src/styles/desktop-fonts.css
 - Headings take the redesign's sizes and weights: 24px 700, 22px 700, 20px 600, 19px 600,
   18px 500, 17px 500. → src/features/editor/desktop/desktopEditor.css
@@ -16,8 +16,9 @@ DOM, one element per display line; it holds no Markdown rules of its own.
   times the font size, as on Android, rounded up to a whole pixel); the other levels' rows are
   one line unit. Its text is centred in each row. → desktopEditor.css,
   tests/desktop-editor-heading-stories.mjs
-- A heading has no space above its first row or below its last: the next line starts where
-  the heading's last row ends, and a blank line makes space. → desktopEditor.css,
+- A heading has 12px of space above its first row (its padding: a press there lands on it),
+  none as the note's first line, and none below its last row: the next line starts where the
+  heading's last row ends. → desktopEditor.css,
   tests/desktop-editor-heading-stories.mjs
 - Up and Down from a heading go to the next line's nearest row, however much taller the
   heading's rows are than the next line's. → hitTest.ts `verticalStop`,
