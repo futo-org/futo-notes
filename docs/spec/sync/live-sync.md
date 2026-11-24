@@ -51,7 +51,8 @@
   total-request timeout so a healthy long-lived stream is never torn down at
   30 s. Its finite setup phases are still bounded: response headers and any
   non-success response body each get 30 s. Once a successful stream starts, the
-  live loop's 90 s read-idle watchdog detects a stall. This split prevents a
+  live loop's 90 s read-idle watchdog detects a stall. Stream bytes reset the
+  watchdog and safety polls leave its deadline in place. This split prevents a
   server that accepts TCP and then stalls a finite response from leaving connect
   or sync pending forever without imposing a finite lifetime on a successful
   SSE body. →

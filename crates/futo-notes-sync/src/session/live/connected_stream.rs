@@ -94,6 +94,7 @@ pub(super) async fn run_connected_stream(
 
     let mut event_stream = EventStream::default();
     let mut remote_pull_at = None;
+    let mut read_idle_at = Instant::now() + READ_IDLE;
 
     loop {
         let remote_pull_timer = wait_until_scheduled(remote_pull_at);
@@ -121,9 +122,12 @@ pub(super) async fn run_connected_stream(
                     return outcome;
                 }
             }
-            events = read_stream_events(&mut response, &mut event_stream) => {
+            events = read_stream_events(&mut response, &mut event_stream, read_idle_at) => {
                 match events {
-                    Ok(events) => schedule_remote_pull(&events, &mut remote_pull_at),
+                    Ok(events) => {
+                        read_idle_at = Instant::now() + READ_IDLE;
+                        schedule_remote_pull(&events, &mut remote_pull_at);
+                    }
                     Err(message) => {
                         live_cycle.listener.on_error(message);
                         return StreamOutcome::Reconnect;
@@ -187,8 +191,9 @@ fn classify_cycle_error(error: &SyncErrorKind) -> (CycleOutcome, String) {
 async fn read_stream_events(
     response: &mut reqwest::Response,
     event_stream: &mut EventStream,
+    read_idle_at: Instant,
 ) -> Result<Vec<String>, String> {
-    match tokio::time::timeout(READ_IDLE, response.chunk()).await {
+    match tokio::time::timeout_at(read_idle_at, response.chunk()).await {
         Ok(Ok(Some(bytes))) => Ok(event_stream.push(&bytes)),
         Ok(Ok(None)) => Err("read: event stream closed".into()),
         Ok(Err(error)) => Err(format!("read: {error}")),
@@ -216,15 +221,51 @@ async fn wait_until_scheduled(at: Option<Instant>) {
 mod tests {
     use super::*;
 
-    struct Recorder(std::sync::Mutex<Vec<String>>);
+    struct Recorder {
+        errors: std::sync::Mutex<Vec<String>>,
+        synced: mpsc::UnboundedSender<()>,
+    }
+
+    impl Recorder {
+        fn new() -> (Self, mpsc::UnboundedReceiver<()>) {
+            let (synced, synced_cycles) = mpsc::unbounded_channel();
+            let recorder = Self {
+                errors: std::sync::Mutex::default(),
+                synced,
+            };
+            (recorder, synced_cycles)
+        }
+    }
 
     impl SyncSessionListener for Recorder {
-        fn on_synced(&self, _summary: crate::sync::SyncSummary) {}
+        fn on_synced(&self, _summary: crate::sync::SyncSummary) {
+            let _ = self.synced.send(());
+        }
         fn on_connected(&self) {}
         fn on_error(&self, message: String) {
-            self.0.lock().unwrap().push(message);
+            self.errors.lock().unwrap().push(message);
         }
         fn on_stopped(&self) {}
+    }
+
+    /// Real time only bounds the wait; the cycle's own completion ends it.
+    async fn drive_stream_through_one_cycle(
+        stream: &mut (impl std::future::Future<Output = StreamOutcome> + Unpin),
+        synced_cycles: &mut mpsc::UnboundedReceiver<()>,
+    ) {
+        tokio::select! {
+            _ = stream => panic!("the stream ended before its cycle finished"),
+            synced = tokio::time::timeout(Duration::from_secs(5), synced_cycles.recv()) => {
+                synced.expect("the cycle did not finish").unwrap();
+            }
+        }
+    }
+
+    /// Moves the clock to a fixed instant, so the real time spent on TLS does not add up.
+    async fn advance_clock_to(instant: Instant) {
+        tokio::time::pause();
+        tokio::time::advance(instant.saturating_duration_since(Instant::now())).await;
+        tokio::time::resume();
     }
 
     #[tokio::test]
@@ -251,7 +292,7 @@ mod tests {
         let response = http.events().await.unwrap();
         let state = Arc::new(Mutex::new(Some(connected)));
         let cycle_gate = Arc::new(Mutex::new(()));
-        let listener = Recorder(std::sync::Mutex::default());
+        let (listener, _synced_cycles) = Recorder::new();
         let no_pre_write = |_: &str| {};
         let journal = Journal::disabled();
         let (_cancel_sender, mut cancel) = mpsc::channel(1);
@@ -291,7 +332,7 @@ mod tests {
             .expect("the stream must end once its root is removed");
         assert!(matches!(outcome, StreamOutcome::Reconnect));
         assert_eq!(clients.generation(), generation + 1);
-        let errors = listener.0.lock().unwrap().clone();
+        let errors = listener.errors.lock().unwrap().clone();
         assert!(
             errors
                 .iter()
@@ -299,6 +340,82 @@ mod tests {
             "expected a certificate rejection, got: {errors:?}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn safety_polls_do_not_postpone_the_stalled_stream_watchdog() {
+        use crate::tls::test_support::{
+            file_backed_trust, private_authority, serve_https_replying,
+        };
+
+        let authority = private_authority("stalled live stream authority");
+        let (address, _, _) = serve_https_replying(&authority, 200, r#"{"objects":[]}"#).await;
+        let (_, verifier) = file_backed_trust(&authority);
+        let clients = HttpClients::with_verifier(Some(verifier)).unwrap();
+        let connected = ConnectedState::new(
+            format!("https://{address}"),
+            "token".into(),
+            "user".into(),
+            "collection".into(),
+            [3; 32],
+        );
+        let root = std::env::temp_dir().join(format!("futo-live-stall-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let http = super::super::super::connect::client(&clients, &connected).unwrap();
+        let response = http.events().await.unwrap();
+        let state = Arc::new(Mutex::new(Some(connected)));
+        let cycle_gate = Arc::new(Mutex::new(()));
+        let (listener, mut synced_cycles) = Recorder::new();
+        let journal = Journal::disabled();
+        let live_cycle = LiveCycle::new(
+            &state,
+            &cycle_gate,
+            &root,
+            &listener,
+            &|_| {},
+            &journal,
+            &clients,
+        );
+        let (_cancel_sender, mut cancel) = mpsc::channel(1);
+        let (_note_changed_sender, mut note_changed) = mpsc::channel(1);
+        let mut schedule = LiveSchedule::start().await;
+        let stream = run_connected_stream(
+            response,
+            http.pool_generation(),
+            &live_cycle,
+            &mut cancel,
+            &mut note_changed,
+            &mut schedule,
+        );
+        tokio::pin!(stream);
+
+        // The stream reads its only chunk, the `ready` event, once the catch-up cycle is
+        // done and before the pull that the event schedules has finished.
+        drive_stream_through_one_cycle(&mut stream, &mut synced_cycles).await;
+        let catch_up_finished = Instant::now();
+        drive_stream_through_one_cycle(&mut stream, &mut synced_cycles).await;
+        let ready_pull_finished = Instant::now();
+
+        // Run the safety poll late, so the one after it falls past the watchdog's deadline.
+        advance_clock_to(catch_up_finished + Duration::from_secs(60)).await;
+        drive_stream_through_one_cycle(&mut stream, &mut synced_cycles).await;
+
+        advance_clock_to(catch_up_finished + Duration::from_secs(89)).await;
+        assert!(
+            tokio::time::timeout(Duration::ZERO, &mut stream)
+                .await
+                .is_err(),
+            "a stream silent for under 90 s stays open"
+        );
+
+        advance_clock_to(ready_pull_finished + Duration::from_secs(91)).await;
+        let outcome = tokio::time::timeout(Duration::ZERO, &mut stream).await;
+        assert!(matches!(outcome, Ok(StreamOutcome::Reconnect)));
+        assert_eq!(
+            listener.errors.lock().unwrap().last().map(String::as_str),
+            Some("read: event stream idle timeout"),
+        );
+        drop(std::fs::remove_dir_all(&root));
     }
 
     #[test]
