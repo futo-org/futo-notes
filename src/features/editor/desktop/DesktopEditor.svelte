@@ -230,7 +230,7 @@
       },
       noteId: () => note?.noteId ?? null,
     });
-    const ownsImageUrlResolver = installVaultImageUrlResolver();
+    installVaultImageUrlResolver();
     // So does the window losing focus, being hidden or minimized, or the page going away.
     const checkpointNow = () => void checkpoint();
     const checkpointWhenHidden = () => {
@@ -254,7 +254,7 @@
       document.removeEventListener('visibilitychange', checkpointWhenHidden);
       unregisterPuppet();
       stopHotUpdates?.();
-      if (ownsImageUrlResolver) uninstallVaultImageUrlResolver();
+      uninstallVaultImageUrlResolver();
     };
   });
 

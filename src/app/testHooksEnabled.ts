@@ -2,8 +2,8 @@
  * Whether this build may install a test-automation hook on `window`.
  *
  * True for a dev server and for a build made with `VITE_INCLUDE_TEST_HOOKS=true`
- * (how `just test-cross-platform` builds the desktop binary it drives, and how
- * the native debug scripts build `editor.html`); false for anything shipped.
+ * (how `just test-cross-platform` builds the desktop binary it drives); false
+ * for anything shipped.
  *
  * One definition because every hook surface has to answer this the same way,
  * and one of them didn't: `installDevelopmentHooks` was gated while

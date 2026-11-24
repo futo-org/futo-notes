@@ -17,23 +17,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function installAndroidHost(postMessage = vi.fn()): void {
-  vi.stubGlobal('futoBridge', { postMessage });
-}
-
 describe('resolveImagePasteSink', () => {
-  it('picks the bridge sink when a native host is listening, whatever the FS says', async () => {
-    const postMessage = vi.fn();
-    installAndroidHost(postMessage);
-    getFS.mockReturnValue({ saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
-
-    const sink = resolveImagePasteSink();
-    await sink?.captureFile(new File([new Uint8Array([1])], 'a.png', { type: 'image/png' }));
-
-    expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(postMessage.mock.calls[0][0] as string).type).toBe('saveImageData');
-  });
-
   it('picks the vault-FS sink on a host that can write image bytes', async () => {
     getFS.mockReturnValue({
       saveImageBytes: vi.fn().mockResolvedValue('image-1.png'),

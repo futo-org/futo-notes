@@ -134,8 +134,8 @@
  * classes, `d1`… setting `--depth` (list nesting) and `q1`… `--quote` (quote nesting), and is
  * indented by its own left padding, so a wrapped row lines up with the text above it and every
  * row stays one line unit. Quote bars come first, then the list's indent. A list level steps
- * 1.4em, as Milkdown's lists do, tapering to half from the fifth level and stopping after the
- * eighth (milkdownEditor.blocks.css says why). A list item's marker is an element in the text
+ * 1.4em, tapering to half from the fifth level and stopping after the eighth, so a deep list
+ * keeps room for its text. A list item's marker is an element in the text
  * (atomElements.ts), drawn in the indent. */
 .desktop-editor .line.list,
 .desktop-editor .line.quote {

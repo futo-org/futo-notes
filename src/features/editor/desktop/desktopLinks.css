@@ -1,6 +1,5 @@
 /* Links and wikilinks in the desktop editor (lineLinks.ts, wikilinkElements.ts), the Link
- * prompt (linkPrompt.ts) and the `[[` completion list (wikilinkCompletion.ts). The look is the
- * Milkdown editor's (src/styles/markdown-links.css, milkdownEditor.css). */
+ * prompt (linkPrompt.ts) and the `[[` completion list (wikilinkCompletion.ts). */
 
 /* A line's font size as a length its wikilinks' labels can take: the wikilink's own text is
  * drawn at no size, so its label cannot size itself from it. */
@@ -63,8 +62,7 @@
   text-decoration-color: currentColor;
 }
 
-/* The Link prompt: the old desktop toolbar's URL field (milkdownEditor.css
- * `.futo-selection-toolbar-url`, `.futo-link-prompt`), fixed on the viewport over the
+/* The Link prompt: the URL field (LinkUrlField.svelte), fixed on the viewport over the
  * selection. */
 .desktop-link-prompt {
   position: fixed;

@@ -49,7 +49,7 @@ afterEach(() => {
 
 describe('listener registry', () => {
   it('records a bare addEventListener call against the window, as the page resolves it', () => {
-    // Milkdown's ctx timers call `addEventListener(…)` with no receiver; the registry threw on
+    // A library may call `addEventListener(…)` with no receiver; the registry threw on
     // it and the editor never started in a dev build. In a page that call reaches the patched
     // prototype method with `this` undefined (jsdom's global keeps the unpatched one).
     const { addEventListener: add, removeEventListener: remove } = EventTarget.prototype;

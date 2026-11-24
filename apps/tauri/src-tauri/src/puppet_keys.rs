@@ -95,7 +95,7 @@ impl Key {
     }
 }
 
-/// `Mod` in a chord: Command on macOS, Control elsewhere, as ProseMirror's keymap reads it.
+/// `Mod` in a chord: Command on macOS, Control elsewhere, as Puppet's chords read it.
 const MOD_IS_META: bool = cfg!(target_os = "macos");
 
 /// The key a character is typed with.

@@ -1,18 +1,10 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  clearVaultImageUrlCache,
-  resolveVaultImageSrc,
-  setVaultImageBaseUrl,
-} from '$features/images/vaultImageSrc';
+import { clearVaultImageUrlCache, resolveVaultImageSrc } from '$features/images/vaultImageSrc';
 
 import { createImageInsertTarget, type ImageInsertTarget } from './imageInsertTarget';
-import {
-  createBridgeImagePasteSink,
-  createImagePasteHandler,
-  createVaultFsImagePasteSink,
-} from './imagePasteSink';
+import { createImagePasteHandler, createVaultFsImagePasteSink } from './imagePasteSink';
 
 function pngFile(name = 'shot.png', type = 'image/png'): File {
   // The bytes are a PNG magic-number prefix; base64 of them is 'iVBORw0KGgo='.
@@ -50,33 +42,6 @@ function into(insert: (filename: string) => void): ImageInsertTarget {
 
 beforeEach(() => {
   clearVaultImageUrlCache();
-  setVaultImageBaseUrl('');
-});
-
-describe('createBridgeImagePasteSink', () => {
-  it('posts saveImageData with base64 bytes and the extension, and inserts nothing itself', async () => {
-    const post = vi.fn();
-    const sink = createBridgeImagePasteSink(post);
-
-    await expect(sink.captureFile(pngFile())).resolves.toBeNull();
-    expect(post).toHaveBeenCalledWith({
-      type: 'saveImageData',
-      data: 'iVBORw0KGgoK',
-      ext: 'png',
-    });
-  });
-
-  it('maps the MIME type to the vault extension', async () => {
-    const post = vi.fn();
-    await createBridgeImagePasteSink(post).captureFile(pngFile('a.jpg', 'image/jpeg'));
-    expect(post.mock.calls[0][0].ext).toBe('jpg');
-  });
-
-  it('posts pasteClipboardImage for a bitmap the paste event never exposed', async () => {
-    const post = vi.fn();
-    await expect(createBridgeImagePasteSink(post).captureHiddenBitmap()).resolves.toBeNull();
-    expect(post).toHaveBeenCalledWith({ type: 'pasteClipboardImage' });
-  });
 });
 
 describe('createVaultFsImagePasteSink', () => {

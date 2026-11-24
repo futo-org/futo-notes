@@ -1,7 +1,6 @@
 /* The desktop app's typefaces, the mobile redesign's: Plus Jakarta Sans for all text and
  * Martian Mono for code in the desktop editor (desktopEditor.css). Only src/main.ts imports
- * this file, so the phones' editor bundle (editor-embed/main.ts) keeps Barlow (fonts.css)
- * and inlines none of these. Unlayered, so its `--font-sans` beats theme.css's `@theme`.
+ * this file. Unlayered, so its `--font-sans` beats theme.css's `@theme`.
  *
  * Google Fonts' own files (SIL OFL 1.1, apps/android/licenses/): one variable font per style,
  * every weight from 200 to 800 in it; Latin and Latin Extended. */

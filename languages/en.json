@@ -593,19 +593,10 @@
         "insertAfter": "Insert after",
         "delete": "Delete",
         "columnOptionsAccessibilityLabel": "Column options",
-        "rowOptionsAccessibilityLabel": "Row options",
-        "headerRowMustStayFirst": "The header row must stay first.",
-        "headerRowCannotBeDeleted": "The header row can't be deleted.",
-        "needsAtLeastOneRow": "A table needs at least one row.",
-        "needsAtLeastOneColumn": "A table needs at least one column."
+        "rowOptionsAccessibilityLabel": "Row options"
       },
       "progressiveLoad": {
-        "loadingRest": "Loading the rest of this note…",
         "opening": "Opening this note…"
-      },
-      "loadFailed": {
-        "heading": "This note could not be displayed.",
-        "body": "Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing has been changed on disk."
       },
       "android": {
         "clipboardTooLarge": "Too much text to copy. Select less and try again."

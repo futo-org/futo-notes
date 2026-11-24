@@ -6,23 +6,22 @@
  *
  * Renderers consume it, they never restate it:
  *
- *   - Web (the embed's EmbedToolbar.svelte, shown on hosts without a native
- *     toolbar) renders the groups directly.
+ *   - The desktop editor's selection toolbar takes its block buttons from the
+ *     groups (`src/features/editor/desktop/blockButtons.ts`).
  *   - Native iOS renders `ToolbarSpec.swift`, GENERATED from this file by
  *     `scripts/gen-toolbar-spec.ts` (`just toolbar-spec`); `just
  *     toolbar-spec-check` fails when the generated copy drifts.
  *   - Native Android (Compose) renders `ToolbarSpec.kt`, generated from this
  *     file by the same script and covered by the same staleness check.
  *
- * The EDITING BEHAVIOR behind each `exec` item is not defined here and never
- * lives in a native shell: every toolbar dispatches `exec(item.id)` — over the
- * bridge on the native shells — into the one shared implementation for
- * Milkdown editor (`src/features/editor/milkdown/toolbarExec.ts`).
+ * The EDITING BEHAVIOR behind each `exec` item is not defined here: the desktop
+ * editor runs it through its engine, the native shells through their Rust editor
+ * sessions.
  */
 
 /** What tapping a toolbar item does. */
 export type ToolbarAction =
-  /** Run the shared editor command: `FutoEditor.exec(item.id)`. */
+  /** Run the editor command the item's id names. */
   | { kind: 'exec' }
   /**
    * Ask the host for an image (`pickImage` outbound message on native). The
@@ -62,12 +61,8 @@ const EXEC: ToolbarAction = { kind: 'exec' };
 export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     // QA-003: first items on the mobile toolbar, ahead of every formatting
-    // control. Editing behavior is prosemirror-history's own `undo`/`redo`
-    // commands (toolbarExec.ts), never a hand-rolled stack. Their enabled
-    // state is NOT selection-driven like every other button here — it rides
-    // the same bridge `formatState` message, in its `disabled` field
-    // (bridge.ts FormatStateMessage), computed from `undoDepth`/`redoDepth`
-    // (formatState.ts `computeDisabledFormats`).
+    // control. Their enabled state is NOT selection-driven like every other
+    // button here: it is whether the editor's history has a step to take.
     {
       id: 'undo',
       localizationPath: 'editor.toolbar.undo',
@@ -274,8 +269,3 @@ export const TOOLBAR_DISMISS: ToolbarItem = {
 
 /** Every item, flattened (groups in order + dismiss). */
 export const TOOLBAR_ITEMS: ToolbarItem[] = [...TOOLBAR_GROUPS.flat(), TOOLBAR_DISMISS];
-
-/** Ids of the `exec` items — the command ids `FutoEditor.exec` must accept. */
-export const TOOLBAR_EXEC_IDS: string[] = TOOLBAR_ITEMS.filter((i) => i.action.kind === 'exec').map(
-  (i) => i.id,
-);

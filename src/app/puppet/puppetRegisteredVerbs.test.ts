@@ -22,6 +22,14 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+/** A button jsdom counts as visible: it lays nothing out, so the button gets a rect. */
+function visibleButton(text: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.textContent = text;
+  button.getBoundingClientRect = () => new DOMRect(10, 20, 100, 30);
+  return button;
+}
+
 /** Lets the verb's receipt chain (puppetVerb → recordDo) run to completion. */
 const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -84,11 +92,7 @@ describe('registered verbs', () => {
         () =>
           new Promise<void>((resolve) => {
             finish = () => {
-              const button = document.createElement('button');
-              button.textContent = 'Deleted';
-              // jsdom lays nothing out; give the button a rect so it counts as visible.
-              button.getBoundingClientRect = () => new DOMRect(10, 20, 100, 30);
-              document.body.append(button);
+              document.body.append(visibleButton('Deleted'));
               resolve();
             };
           }),

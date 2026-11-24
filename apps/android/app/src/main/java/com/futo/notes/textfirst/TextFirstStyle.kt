@@ -7,8 +7,7 @@ import android.text.TextPaint
 internal const val NOTE_TEXT_INSET_DP = 18f
 
 /**
- * The look of the text-first editor, matched to the Milkdown surface
- * (milkdownEditor.surface.css): 17px Barlow at 1.55 line height, headings at the
+ * The look of the text-first editor: 17px Barlow at 1.55 line height, headings at the
  * desktop editor's sizes and weights, muted quotes behind a 3px rule, monospace code at
  * 0.9em on the code background. Pixel values are resolved once per view.
  */

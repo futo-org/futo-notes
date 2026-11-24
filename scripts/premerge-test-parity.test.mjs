@@ -50,22 +50,7 @@ describe('pre-merge CI routing contracts', () => {
     expect(topLevelBlock(gitlabPipeline, /^release:gate:$/m)).not.toContain('test:e2e:smoke');
   });
 
-  it('proves every Playwright shard ran as its shard and ran tests', () => {
-    // Both failures are green on their own: `pnpm run <script> -- --shard=…`
-    // ran the whole suite in every shard, and an empty shard exits 0. The
-    // runtime check catches both, but cannot catch its own absence.
-    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
-    const sharded = jobs.filter(
-      (job) => /^ {2}parallel: \d+$/m.test(job) && job.includes('pnpm run test:e2e'),
-    );
-    expect(sharded.length).toBeGreaterThan(0);
-    for (const job of sharded) {
-      const name = job.split('\n')[0];
-      expect(job, name).toContain('!reference [.check-playwright-shard, script]');
-      expect(job, name).toMatch(
-        /^ {4}PLAYWRIGHT_JSON: \$CI_PROJECT_DIR\/test-results\/\S+\.json$/m,
-      );
-    }
+  it('runs the web suite with two Playwright workers', () => {
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
   });
 

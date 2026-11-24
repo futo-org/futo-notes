@@ -1,5 +1,5 @@
-/* The `/` menu (slashMenu.ts): the Milkdown editor's (milkdownEditor.css `.futo-slash-menu`),
- * body-mounted and fixed on the viewport, so no scroller clips it. */
+/* The `/` menu (slashMenu.ts), body-mounted and fixed on the viewport, so no scroller clips
+ * it. */
 .desktop-slash-menu {
   position: fixed;
   z-index: 60;

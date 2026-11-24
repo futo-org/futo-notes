@@ -1,8 +1,7 @@
 /* === Fonts === */
 
-/* Barlow — the phones' editor bundle's typeface (editor-embed/main.ts). The
-   desktop app draws in Plus Jakarta Sans instead (desktop-fonts.css, which
-   only src/main.ts loads). We ship 4 normal weights (400/500/600/700) and
+/* Barlow — theme.css's default `--font-sans`. The desktop app draws in Plus
+   Jakarta Sans instead (desktop-fonts.css, which only src/main.ts loads). We ship 4 normal weights (400/500/600/700) and
    2 italics (400/700) over latin + latin-ext subsets. Anything outside those
    ranges falls through to system-ui. */
 @font-face {

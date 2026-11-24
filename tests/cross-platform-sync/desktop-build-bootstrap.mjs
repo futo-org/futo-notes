@@ -90,7 +90,6 @@ function newestSourceMtime() {
     'crates',
     'apps/tauri',
     'index.html',
-    'editor.html',
     'package.json',
     'vite.config.ts',
     'Cargo.toml',

@@ -141,7 +141,7 @@
       while (hook().getState().editorContent === prevDoc && performance.now() < deadline) {
         await tick();
       }
-      document.querySelector('.ProseMirror')?.getBoundingClientRect();
+      document.querySelector('.desktop-editor')?.getBoundingClientRect();
       layout = Math.round(performance.now() - t0);
     } else {
       for (let i = 0; i < 120; i += 1) {

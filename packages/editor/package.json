@@ -3,11 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Shared editor rules plus the editor.html/futoBridge contract for the native iOS and Android hosts.",
+  "description": "Shared editor rules (the TypeScript mirrors of the Rust note rules) and the toolbar/title manifests the native iOS and Android hosts codegen from.",
   "exports": {
     ".": "./src/index.ts",
-    "./bridge": "./src/bridge.ts",
-    "./markdown": "./src/markdown/index.ts",
     "./wasm-payloads": "./src/wasmPayloads.d.ts"
   },
   "scripts": {

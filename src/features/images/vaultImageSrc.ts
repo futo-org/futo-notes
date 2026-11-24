@@ -3,25 +3,18 @@
  * load — the single owner of that mapping.
  *
  * Notes reference images by bare filename (`![](image-1712.png)`), which is
- * what has to stay on disk. What resolves that filename differs per shell:
- *
- *   - Standalone browser fixtures: the host registers ONE base URL (`setImageBaseUrl` on the
- *     bridge) that serves fixture images, and every filename hangs off it.
- *   - Tauri desktop: there is no base URL. Each file resolves individually
- *     through the asset protocol (or a `blob:` fallback when the asset
- *     protocol cannot decode), so the resolved URL is registered per file.
+ * what has to stay on disk. On Tauri desktop each file resolves individually
+ * through the asset protocol (or a `blob:` fallback when the asset protocol
+ * cannot decode), so the resolved URL is registered per file.
  */
 
-/** Per-file resolved URLs, which win over the base URL when present. */
+/** Per-file resolved URLs. */
 const vaultImageUrls = new Map<string, string>();
 
-let vaultImageBaseUrl = '';
-
 /**
- * How THIS host turns one vault filename into a loadable URL, when there is no
- * base URL to hang it off. Only Tauri desktop has one (`PlatformFS.getImageUrl`
- * — asset protocol, or a `blob:` when the asset protocol cannot decode); the
- * standalone browser hosts can register a base URL instead and leave this unset.
+ * How THIS host turns one vault filename into a loadable URL. Only Tauri desktop
+ * has one (`PlatformFS.getImageUrl` — asset protocol, or a `blob:` when the asset
+ * protocol cannot decode).
  */
 type VaultImageUrlResolver = (filename: string) => Promise<string>;
 
@@ -32,11 +25,10 @@ let urlResolver: VaultImageUrlResolver | null = null;
 const inFlight = new Map<string, Promise<boolean>>();
 
 /**
- * Live renderers that must re-resolve when the mapping changes. A ProseMirror
- * node view has no other way to hear about it: the base URL can arrive AFTER
- * the content (the boot order only guarantees it for `initialize`, and a
- * desktop `getImageUrl` resolves asynchronously), and no document transaction
- * accompanies either event, so nothing would otherwise re-render the image.
+ * Live renderers that must re-resolve when the mapping changes. A drawn picture
+ * has no other way to hear about it: a desktop `getImageUrl` resolves
+ * asynchronously, after the content, and no edit accompanies it, so nothing
+ * would otherwise redraw the image.
  */
 const subscribers = new Set<() => void>();
 
@@ -61,13 +53,11 @@ function isRemoteImageSource(source: string): boolean {
 /**
  * The URL to load for an image reference, or `''` when a vault filename cannot
  * be resolved yet. Callers render an empty `src` as "no image yet" rather than
- * a broken-image glyph — the base URL may still be on its way.
+ * a broken-image glyph — the URL may still be on its way.
  */
 export function resolveVaultImageSrc(source: string): string {
   if (isRemoteImageSource(source)) return source;
-  const registered = vaultImageUrls.get(source);
-  if (registered !== undefined) return registered;
-  return vaultImageBaseUrl ? vaultImageBaseUrl + encodeURIComponent(source) : '';
+  return vaultImageUrls.get(source) ?? '';
 }
 
 /** Register the URL a single vault filename resolves to (Tauri desktop). */
@@ -79,20 +69,13 @@ export function registerVaultImageUrl(filename: string, url: string): void {
   notify();
 }
 
-/** Register the vault-root base URL every filename hangs off (native shells). */
-export function setVaultImageBaseUrl(baseUrl: string): void {
-  if (baseUrl === vaultImageBaseUrl) return;
-  vaultImageBaseUrl = baseUrl;
-  notify();
-}
-
 export function clearVaultImageUrlCache(): void {
   for (const url of vaultImageUrls.values()) {
     if (url.startsWith('blob:')) URL.revokeObjectURL(url);
   }
   vaultImageUrls.clear();
   inFlight.clear();
-  /* Notify like the other two mutators: a live renderer still holding a src
+  /* Notify like the other mutator: a live renderer still holding a src
    * that was just revoked has to drop it. */
   notify();
 }

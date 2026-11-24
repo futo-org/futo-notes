@@ -1,6 +1,5 @@
 /* Find's matches (findBands.ts): behind the text like the selection's highlight, and under it,
- * so the current match, selected, still reads as selected. The colours and corners are the
- * Milkdown find's (milkdownEditor.blocks.css). */
+ * so the current match, selected, still reads as selected. */
 .desktop-find {
   position: absolute;
   inset: 0;

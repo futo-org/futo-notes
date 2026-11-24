@@ -1,7 +1,7 @@
 /* The grammars that colour code blocks (codeColours.ts), and their parsing: loaded with the first
  * block that names a language (a dynamic import), so a note without one loads none of it. A
  * block's language as written is looked up in the curated list (codeFenceLanguages.ts) by name
- * or alias, ignoring case, as the Milkdown editor does; each grammar is fetched the first time a
+ * or alias, ignoring case; each grammar is fetched the first time a
  * block uses it. A block is parsed whole, again only where it changed (Lezer's incremental
  * parse), and in slices: the caller says when to stop. */
 import { LanguageDescription } from '@codemirror/language';

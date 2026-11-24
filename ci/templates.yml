@@ -166,31 +166,6 @@
         echo "Using Playwright browsers in $PLAYWRIGHT_BROWSERS_PATH"
       fi
 
-# M11 for a `parallel:` Playwright job: the shard flag must have reached
-# Playwright AND this shard must have run tests, because both failures are
-# green. `pnpm run <script> -- --shard=…` forwards a literal `--`, and
-# Playwright then ran the WHOLE suite in every shard; an empty shard exits 0
-# with stats.expected 0 (both reproduced locally on Playwright 1.63.0). Reads
-# the JSON reporter's output named by $PLAYWRIGHT_JSON.
-.check-playwright-shard:
-  script:
-    - |
-      node -e '
-        const [file, index, total] = process.argv.slice(1);
-        const report = require(file);
-        const shard = report.config && report.config.shard;
-        if (!shard || shard.current !== Number(index) || shard.total !== Number(total)) {
-          console.error(`Playwright did not run as shard ${index}/${total} (report shard: ${JSON.stringify(shard)})`);
-          process.exit(1);
-        }
-        const passed = report.stats ? report.stats.expected : 0;
-        if (!(passed > 0)) {
-          console.error(`Playwright shard ${index}/${total} ran zero tests`);
-          process.exit(1);
-        }
-        console.log(`Playwright shard ${index}/${total}: ${passed} tests passed`);
-      ' "$PLAYWRIGHT_JSON" "$CI_NODE_INDEX" "$CI_NODE_TOTAL"
-
 # M11 for an UNSHARDED Playwright job: a green exit that ran no tests is a
 # pass with nothing behind it. Reads the JSON reporter's output named by
 # $PLAYWRIGHT_JSON.
