@@ -197,7 +197,9 @@ class TextFirstBlockReflowTest {
             val at = carryUntil(from, 8f, right()) { report?.gap == BlockSlot(offsetOf("charlie"), false) }
             val tall = report!!.copy!!.height()
             ui { view.setPadding(view.paddingLeft, view.paddingTop, view.width / 2, view.paddingBottom) }
-            compose.waitUntil(3_000) { (report?.copy?.height() ?: 0f) > tall * 1.5f }
+            // It wraps to at least one row more (not "half as many again": on a wide screen the block starts on two rows and halving the column gives three).
+            val row = ui { view.lineHeight }
+            compose.waitUntil(3_000) { (report?.copy?.height() ?: 0f) > tall + row / 2f }
             assertEquals("the gap stayed", BlockSlot(offsetOf("charlie"), false), report?.gap)
             assertCopyDrawn()
             val copy = checkNotNull(report?.copy)

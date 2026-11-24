@@ -3,16 +3,20 @@ package com.futo.notes.textfirst
 import android.graphics.Rect
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** One stable native parent: Android routes grid/note gestures and field gestures to their real children. */
 internal class TextFirstTableCellHost(
     private val note: TextFirstEditText,
     private val finishCell: () -> Unit,
+    actions: TableGripActions,
 ) : FrameLayout(note.context) {
+    private val grips = TableGrips(this, note.style, actions)
     private data class Anchor(val row: Int, val column: Int, val width: Int, val height: Int)
     private var cell: TableCellEditText? = null
     private var anchor: Anchor? = null
@@ -28,17 +32,21 @@ internal class TextFirstTableCellHost(
     /** When a press last landed on the table: the cell it opens, within [ASKED_MS], is the one asked for. */
     private var pressedTableAt = 0L
     private val asked get() = android.os.SystemClock.uptimeMillis() - pressedTableAt < ASKED_MS
+    /** The press that landed on a grip, until it lifts or drags: a tap on a grip opens its menu, a drag from it pans the table. */
+    private var gripDown: MotionEvent? = null
+    private var panning = false
     private var placing = false
     private var observingNote = false
     private var observer: ViewTreeObserver? = null
     private val settle: () -> Unit = { placeCell() }
-    private val frames = ViewTreeObserver.OnPreDrawListener { placeCell(); true }
+    private val backExclusion = TableBackExclusion(note)
+    private val frames = ViewTreeObserver.OnPreDrawListener { placeCell(); backExclusion.update(); true }
     var onBoundsChanged: (Rect?) -> Unit = {}
         set(value) { field = value; value(bounds?.let(::Rect)) }
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
         private fun outside(e: MotionEvent): Boolean = cell != null && !note.scroll.stoppingTouch &&
-            note.tableRowAt(e.y - note.top)?.let { note.tableCellAt(it, e.x - note.left) } == null
+            note.tableRowAt(e.y - note.top)?.let { note.tableBoxAt(it, e.x - note.left) } != true
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             if (outside(e)) finishCell()
             return false
@@ -46,7 +54,16 @@ internal class TextFirstTableCellHost(
         override fun onLongPress(e: MotionEvent) { if (outside(e)) finishCell() }
     })
 
+    /** Whether a cell of [row]'s table is the open one. */
+    private fun opensTable(row: TfTableRow): Boolean {
+        val update = cell?.update ?: return false
+        val e = note.editableText ?: return false
+        if (update.rowStart !in 0 until e.length) return false
+        return e.getSpans(update.rowStart, update.rowStart, TfTableRow::class.java).any { e.getSpanStart(it) == update.rowStart && it.scroll === row.scroll }
+    }
+
     init {
+        note.tableTouch.hooks.tableOpen = ::opensTable
         clipChildren = true
         clipToPadding = true
         addView(note, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -63,13 +80,14 @@ internal class TextFirstTableCellHost(
                 .hideSoftInputFromWindow(token, 0)
             removeView(previous)
         }
+        if (next == null) grips.remove()
         cell = next
         yielded = false
         anchor = null
         styled = null
         started = false
         reportBounds(null)
-        next?.let { it.alpha = 0f; addView(it, LayoutParams(0, 0)) }
+        next?.let { it.alpha = 0f; it.openLink = { run -> note.openCellLink(run) }; addView(it, LayoutParams(0, 0)) }
         requestLayout()
     }
 
@@ -111,6 +129,8 @@ internal class TextFirstTableCellHost(
     fun release() {
         stopObserving()
         setCell(null)
+        grips.remove()
+        androidx.core.view.ViewCompat.setSystemGestureExclusionRects(note, emptyList())
         removeView(note)
         onBoundsChanged = {}
     }
@@ -135,11 +155,12 @@ internal class TextFirstTableCellHost(
             }
             if (geometry == null) {
                 field.alpha = 0f // Keep its attachment, focus and input connection while the note frame arrives.
+                grips.hide()
                 reportBounds(null)
                 return
             }
             anchor = nextAnchor
-            if (styled != geometry) { field.applyGeometry(geometry); styled = geometry }
+            if (styled != geometry || field.styleStale) { field.applyGeometry(geometry); styled = geometry }
             val rect = geometry.bounds
             val x = note.left + rect.left.roundToInt()
             val y = note.top + rect.top.roundToInt()
@@ -154,6 +175,11 @@ internal class TextFirstTableCellHost(
             if (field.left != x || field.top != y || field.right != x + w || field.bottom != y + h || needsLayout) {
                 field.layout(x, y, x + w, y + h)
             }
+            // Clipped at the table's visible edges when the table is scrolled sideways.
+            val clipLeft = (geometry.visibleLeft - rect.left).roundToInt().coerceIn(0, w)
+            val clipRight = (geometry.visibleRight - rect.left).roundToInt().coerceIn(0, w)
+            val clip = if (clipLeft > 0 || clipRight < w) Rect(clipLeft, 0, maxOf(clipLeft, clipRight), h) else null
+            if (field.clipBounds != clip) field.clipBounds = clip
             if (!asked && (yielded || !field.isFocused && rootView.findFocus()?.let { it.onCheckIsTextEditor() && it !== note && it.parent !== this } == true)) {
                 yielded = true
                 field.alpha = 0f
@@ -162,6 +188,8 @@ internal class TextFirstTableCellHost(
             }
             field.alpha = 1f
             reportBounds(Rect(field.left, field.top, field.right, field.bottom))
+            grips.layout(android.graphics.RectF(field.left.toFloat(), field.top.toFloat(), field.right.toFloat(), field.bottom.toFloat()),
+                geometry, checkNotNull(target), note.top.toFloat(), height.toFloat())
             if (!started) {
                 started = true
                 pressedTableAt = 0L
@@ -181,6 +209,31 @@ internal class TextFirstTableCellHost(
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (panning) {
+            // A grip press that became a drag now belongs to the note, as if it had started there.
+            val handled = note.dispatchTouchEvent(event)
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) panning = false
+            return handled
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            gripDown?.recycle()
+            gripDown = if (grips.hits(event.x.toInt(), event.y.toInt())) MotionEvent.obtain(event) else null
+        }
+        gripDown?.let { down ->
+            if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                val slop = ViewConfiguration.get(context).scaledTouchSlop
+                if (abs(event.x - down.x) > slop || abs(event.y - down.y) > slop) {
+                    gripDown = null
+                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                    try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                    panning = true
+                    note.dispatchTouchEvent(down)
+                    down.recycle()
+                    return note.dispatchTouchEvent(event)
+                }
+            }
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) { down.recycle(); gripDown = null }
+        }
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             pressedTableAt = if (note.tableRowAt(event.y - note.top) != null) event.downTime else 0L
             if (asked && yielded) { yielded = false; started = false; post { placeCell() } }
@@ -188,7 +241,7 @@ internal class TextFirstTableCellHost(
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             val hit = Rect()
             cell?.getHitRect(hit)
-            observingNote = cell != null && !hit.contains(event.x.toInt(), event.y.toInt())
+            observingNote = cell != null && !hit.contains(event.x.toInt(), event.y.toInt()) && !grips.hits(event.x.toInt(), event.y.toInt())
         }
         val handled = super.dispatchTouchEvent(event)
         // Observe only gestures Android routed outside the active field. Native

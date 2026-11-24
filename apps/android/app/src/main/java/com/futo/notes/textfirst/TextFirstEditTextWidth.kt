@@ -104,6 +104,8 @@ internal fun TextFirstEditText.refreshWidthDependentSpans() {
             if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
             e.setSpanRedrawingBelow(this, atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
         }
+        // A grid's columns follow the note's width: measure its rows again and keep its offset inside the new extent.
+        settleTables(e, null)
     } finally {
         applying = wasApplying
     }

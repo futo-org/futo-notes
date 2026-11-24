@@ -58,6 +58,16 @@ class TextFirstCodeHeaderKeyboardTest {
         delay(400)
     }
 
+    /**
+     * Typed text, each part committed with the main thread held until the next (see [pickSuggestion]): the keyboard bound to
+     * the field answers a selection change by finishing its composition ~50 ms later, and answered between two parts (a
+     * coroutine delay lets it) it makes the next one land beside the last (`aab`) on the slower emulators.
+     */
+    private suspend fun typeHeld(input: android.view.inputmethod.InputConnection, vararg parts: String) {
+        for (part in parts) { input.commitText(part, 1); Thread.sleep(150) }
+        delay(400)
+    }
+
     /** Mason: a picked suggestion must not leave `Python-` (FUTO commits the word, then its own space). */
     @Test fun aPickedLanguageSuggestionWritesTheWordWithoutAHyphen() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val field = openField(c, CodeBlockAction.LANGUAGE_LABEL)
@@ -74,7 +84,7 @@ class TextFirstCodeHeaderKeyboardTest {
         val field = openField(c, CodeBlockAction.LANGUAGE_LABEL)
         field.selectAll()
         val input = field.onCreateInputConnection(EditorInfo())!!
-        for (typed in listOf("c", " ", "sharp")) { input.commitText(typed, 1); delay(150) }
+        typeHeld(input, "c", " ", "sharp")
         withTimeout(5_000) { while (!c.sourceText()!!.startsWith("```c-sharp\n")) delay(20) }
         assertEquals("c-sharp", field.text.toString())
     }
@@ -101,7 +111,7 @@ class TextFirstCodeHeaderKeyboardTest {
     @Test fun aTypedBacktickIsNotKept() = textFirstSession("```js\nconst a = 1\n```\n\nafter") { c ->
         val field = openField(c, CodeBlockAction.NAME_FIELD)
         val input = field.onCreateInputConnection(EditorInfo())!!
-        for (typed in listOf("a", "`", "b")) { input.commitText(typed, 1); delay(150) }
+        typeHeld(input, "a", "`", "b")
         withTimeout(5_000) { while (!c.sourceText()!!.contains("name:ab")) delay(20) }
         assertEquals("ab", field.text.toString())
     }

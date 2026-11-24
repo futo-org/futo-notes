@@ -78,6 +78,16 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow, previous
     }
     addSpans(e, wanted, previousPhotos)
     if (wanted.any { it is SpanSpec.Image }) requestImageLoads(window.start, window.end)
+    spans.takeDirtyTables().takeIf { it.isNotEmpty() }?.let { settleTables(e, it) }
+}
+
+/** Rows the engine did not describe again keep the old column count's measurements: measure them at the table's new width, within its scroll. */
+internal fun TextFirstEditText.settleTables(e: Editable, tables: Set<TableScroll>?) {
+    for (row in e.getSpans(0, e.length, TfTableRow::class.java)) {
+        if (tables != null && row.scroll !in tables) continue
+        row.scrollBy(0f)
+        e.setSpan(row, e.getSpanStart(row), e.getSpanEnd(row), e.getSpanFlags(row))
+    }
 }
 
 /**

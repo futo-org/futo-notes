@@ -14,6 +14,8 @@ internal fun TextFirstEditText.releasePayload() {
     keyHooks.clear()
     onOpenUrl = null
     onTableCell = null
+    tableTouch.hooks.missing = null
+    tableTouch.hooks.tableOpen = { false }
     setOnFocusChangeListener(null)
     clearFocus()
     scroll.stop()

@@ -136,6 +136,8 @@ internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
     val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
+    // Enter in a cell is the table's key; the cell it arrives in has its caret at the end of its text.
+    if (editingCell && (key == EditorParagraphKey.ENTER || key == EditorParagraphKey.SHIFT_ENTER)) collapseCellCaret()
 }
 
 
