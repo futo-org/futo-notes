@@ -12,7 +12,7 @@ internal class Slide(val from: Float, val to: Float, val start: Long, private va
     fun toward(target: Float, now: Long) = if (target == to) this else Slide(at(now), target, now)
 
     companion object {
-        /** Neighbours slide over 180 ms with the web editor's easing. */
+        /** Neighbours slide over 180 ms, with iOS's easing (TextFirstReflowMotion.swift). */
         const val SLIDE_MS = 180L
         private val EASE = PathInterpolator(0.2f, 0.9f, 0.3f, 1f)
         fun still(at: Float) = Slide(at, at, 0L)

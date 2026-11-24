@@ -40,7 +40,7 @@ private fun isCanonicalImageExtension(extension: String): Boolean =
 const val MAX_PICKED_IMAGES = 3
 
 /**
- * Native image pickers behind the editor's `pickImage` bridge message
+ * Native image pickers behind the toolbar's `pickImage` items
  * [editor.md:121, editor.md:130]. The Photo Picker needs no permission on any
  * API level. TakePicture writes into a FileProvider cache file through the
  * system camera app, but because the manifest declares CAMERA (for pairing
@@ -291,33 +291,6 @@ fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): St
     } catch (e: Exception) {
         dest.delete()
         android.util.Log.e("ImagePicker", "image import failed", e)
-        null
-    }
-}
-
-/**
- * Save raw image bytes (from a clipboard paste, decoded from the bridge's
- * base64 `saveImageData` message) into the vault root under a generated unique
- * name. Returns the saved filename, or null when [ext] isn't one of
- * accepted by the canonical Rust image rule or the write fails. Blocking I/O —
- * call from Dispatchers.IO. [isAllowedExtension] is injectable so the plain JVM
- * file-I/O tests do not have to load the UniFFI native library.
- */
-fun saveImageDataIntoVault(
-    vaultRoot: File,
-    data: ByteArray,
-    ext: String,
-    isAllowedExtension: (String) -> Boolean = ::isCanonicalImageExtension,
-): String? {
-    val lowered = ext.lowercase()
-    if (!isAllowedExtension(lowered)) return null
-    val dest = reserveImageFile(vaultRoot, lowered) ?: return null
-    return try {
-        dest.writeBytes(data)
-        dest.name
-    } catch (e: Exception) {
-        dest.delete()
-        android.util.Log.e("ImagePicker", "image save failed", e)
         null
     }
 }

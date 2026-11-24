@@ -7,7 +7,7 @@ import UIKit
 // would land and the blocks between slide. With Reduce Motion on, once the note autoscrolls, or
 // when the preview cannot be built, the block dims in place and a drop line marks the slot
 // instead. Releasing moves it there as one Undo step (+BlockMove). While the note is being edited
-// every long-press is the platform's, as in the web editor. The view decides only which
+// every long-press is the platform's. The view decides only which
 // position is under the finger and which slot it chooses.
 
 /// What a press at a point lifts, at the engine's revision: its slots, kept as the note scrolls

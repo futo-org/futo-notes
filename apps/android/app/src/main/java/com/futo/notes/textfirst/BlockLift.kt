@@ -35,7 +35,7 @@ private class ViewDragHaptics(private val view: TextFirstEditText) : DragHaptics
     }
 }
 
-/** How a press lifts a block: the web editor's hold and tolerance (dp, as its CSS px). */
+/** How a press lifts a block: iOS's hold and tolerance (TextFirstDragFeel.swift), in dp. */
 internal object LiftPolicy {
     const val HOLD_MS = 340L
     const val TOLERANCE_DP = 10f

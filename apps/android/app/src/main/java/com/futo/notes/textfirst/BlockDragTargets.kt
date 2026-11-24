@@ -83,7 +83,8 @@ internal class DropTargets(val slots: List<Pair<BlockSlot, Float>>, val own: Pai
 }
 
 /**
- * The edge autoscroll of a block drag, as the web editor's (blockDragGeometry.ts): held within
+ * The edge autoscroll of a block drag, the same zone and speeds as iOS's
+ * (TextFirstBlockDragTargets.swift): held within
  * [ZONE_DP] of the visible note's top or bottom the note scrolls, [SLOWEST_DP] per second at
  * the zone's inner lip ramping to [FASTEST_DP] at the edge and past it, one frame's step capped
  * at [LONGEST_FRAME_S]. Where the note shows less than two zones the nearer edge wins.

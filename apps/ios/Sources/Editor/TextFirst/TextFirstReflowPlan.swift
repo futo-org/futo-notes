@@ -142,10 +142,9 @@ struct TextFirstReflowPlan: Equatable {
         return CGRect(x: away.minX, y: y, width: away.width, height: away.height)
     }
 
-    /// The gap a finger at `y` opens, starting from the gap open now (the web editor's
-    /// `reflowGapAt`): the gap moves past the stretch of note between it and the next position
-    /// it may open on once the finger passes that stretch's middle as it is drawn now, step by
-    /// step, and stays put on the exact middle. Passing a stretch draws it on the gap's other
+    /// The gap a finger at `y` opens, starting from the gap open now: the gap moves past the
+    /// stretch of note between it and the next position it may open on once the finger passes
+    /// that stretch's middle as it is drawn now, step by step, and stays put on the exact middle. Passing a stretch draws it on the gap's other
     /// side, so the finger has to come back past its middle as drawn there to undo the step,
     /// which is a block's height away: the gap does not flicker. `drawn` is each run's top as it
     /// is drawn now, mid-slide included; without it, where the gap at `start` puts it.

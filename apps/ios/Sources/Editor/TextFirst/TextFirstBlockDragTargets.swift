@@ -4,10 +4,10 @@ import UIKit
 // slots; the view keeps them by slot, never by where they were drawn at the lift, asks the
 // engine only for the stretch of note that newly comes near the screen, and reads where each
 // is drawn from TextKit's real layout every time the layout or the scroll changes
-// (`TextFirstEditorController.dropTargets`). The edge autoscroll moves the note as the web
-// editor's did.
+// (`TextFirstEditorController.dropTargets`). The edge autoscroll moves the note as Android's
+// does (BlockDragTargets.kt).
 
-/// The edge autoscroll of a block drag, as the web editor's (blockDragGeometry.ts): held within
+/// The edge autoscroll of a block drag, with Android's zone and speeds: held within
 /// 64 pt of the visible area's top or bottom edge the note scrolls, 200 pt/s at the zone's inner
 /// lip ramping to 1400 pt/s at the edge (and past it), one frame's step capped at 0.05 s.
 enum TextFirstAutoscroll {

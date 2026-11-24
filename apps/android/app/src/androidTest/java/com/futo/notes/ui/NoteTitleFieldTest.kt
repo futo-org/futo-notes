@@ -26,9 +26,9 @@ import org.junit.runner.RunWith
 
 /**
  * Return in the note title moves on into the body [list.md]. The screen hands
- * [NoteTitleField] `EditorHost.focusEditor` as `onReturn`; what this pins is
- * that both kinds of Return reach it and that neither puts a newline in the
- * title. Whether the keyboard then stays up is a device check (the WebView's
+ * [NoteTitleField] the editor's focus-and-show-keyboard as `onReturn`; what this
+ * pins is that both kinds of Return reach it and that neither puts a newline in
+ * the title. Whether the keyboard then stays up is a device check (the editor's
  * IME handoff is not something a Compose test can host).
  */
 @RunWith(AndroidJUnit4::class)

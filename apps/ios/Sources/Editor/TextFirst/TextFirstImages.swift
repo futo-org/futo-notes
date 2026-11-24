@@ -189,7 +189,7 @@ final class TextFirstImageLoader: @unchecked Sendable {
     }
 
     /// The vault file a reference names, or nil when it leaves the vault or is not an image
-    /// the shared rules serve. The reference is percent-decoded as the web editor's base URL does.
+    /// the shared rules serve. The reference is percent-decoded, as a URL path would be.
     func resolve(_ destination: String) -> URL? {
         let decoded = destination.removingPercentEncoding ?? destination
         guard !decoded.hasPrefix("/"), VaultImages.mimeType(for: decoded) != nil else {

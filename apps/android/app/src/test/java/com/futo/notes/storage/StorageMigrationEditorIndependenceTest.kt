@@ -1,6 +1,5 @@
 package com.futo.notes.storage
 
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -17,18 +16,6 @@ class StorageMigrationEditorIndependenceTest {
                 "could not locate $relativePath from cwd=${File(".").absolutePath} — tried: " +
                     candidates.joinToString { it.path },
             )
-    }
-
-    @Test
-    fun `storage migration has no editor snapshot dependency`() {
-        val activitySource = productionSource("MainActivityStorage.kt")
-        val switchWorkflow = activitySource
-            .substringAfter("internal fun MainActivity.performSwitch")
-            .substringBefore("internal fun MainActivity.requestDeviceAccess")
-        assertFalse(
-            "performSwitch must consume committed or retained drafts, never depend on EditorHost",
-            switchWorkflow.contains("EditorHost"),
-        )
     }
 
     @Test

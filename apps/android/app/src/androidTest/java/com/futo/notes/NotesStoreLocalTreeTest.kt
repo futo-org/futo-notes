@@ -19,7 +19,7 @@ import org.junit.Test
 import uniffi.futo_notes_ffi.RenamePair
 import uniffi.futo_notes_ffi.SyncSummary
 
-/** The post-sync list refresh is shared by the WebView editor; a refresh that can never succeed must not stall it. */
+/** The post-sync list refresh is shared by the editor; a refresh that can never succeed must not stall it. */
 class NotesStoreLocalTreeTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
