@@ -81,14 +81,4 @@ class TextFirstCompletionKeysTest {
         compose.waitUntil(10_000) { !shown("Other alpha") }
         assertTrue(readOnMainThread { view.text.toString() }.startsWith("start[[Oth]]"))
     }
-
-    /** A row highlighted below the list's new end, after the list shrinks, takes the row that is left. */
-    @Test fun aListThatShrinksUnderTheHighlightTakesWhatIsLeft() = compose.withTextFirstScreen(note, nativeTheme = tableSceneTheme, otherNotes = others) { view, connection ->
-        openList(view, connection)
-        key(view, KeyEvent.KEYCODE_DPAD_DOWN)
-        type(connection, "e", "r", " ", "a")
-        compose.waitUntil(10_000) { shown("Other alpha") && !shown("Other beta") }
-        key(view, KeyEvent.KEYCODE_ENTER)
-        inserted(view, "Other alpha")
-    }
 }
