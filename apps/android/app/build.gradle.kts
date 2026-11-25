@@ -270,8 +270,9 @@ tasks.configureEach {
     }
 }
 
-// Lockfile + vulnerability pins for what ships.
-apply(from = "dependency-pins.gradle.kts")
+// Lockfile + vulnerability pins for what ships. Kept out of app/: AGP's release
+// lint parses every *.gradle.kts in the module directory and crashes on this one.
+apply(from = rootProject.file("gradle/dependency-pins.gradle.kts"))
 
 dependencies {
     // Keep the BOM on the Compose train that activity-compose pulls in

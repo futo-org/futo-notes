@@ -1,6 +1,6 @@
 import org.gradle.api.artifacts.dsl.LockMode
 
-// What ships, pinned. Applied from build.gradle.kts.
+// What ships, pinned. Applied from app/build.gradle.kts.
 
 // Lock the release runtime classpath of each distribution flavor.
 // app/gradle.lockfile lists every library in the APK, transitive ones included,
