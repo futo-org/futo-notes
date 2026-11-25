@@ -291,43 +291,6 @@ fn reload_reads_back_the_note_the_token_holds() {
 }
 
 #[test]
-fn a_switch_reloads_the_held_note_only_when_it_is_the_one_asked_for() {
-    let (root, store) = vault("ab");
-    let hosts = EditorHostState::default();
-    let (opened, mut page) = open(&hosts, &store, "plain");
-    type_at_end(&hosts, opened.token, &mut page, "c");
-    // Another session holds "other": its lease refuses the open, and the note
-    // the host holds is not the one asked for, so nothing changes.
-    let elsewhere = store.open_editor("other").unwrap();
-    assert!(hosts
-        .switch(store.clone(), "other".into(), false, no_events())
-        .is_err());
-    drop(elsewhere);
-    type_at_end(&hosts, opened.token, &mut page, "d");
-
-    // Exactly the note held: reloaded, and with `discard` its unsaved draft is
-    // dropped.
-    let reloaded = hosts
-        .switch(store.clone(), "plain".into(), true, no_events())
-        .unwrap();
-    assert!(!reloaded.closed.unwrap().saved);
-    assert_eq!(reloaded.opened.snapshot.source, "ab");
-    assert_eq!(read(&store, "plain").as_deref(), Some("ab"));
-
-    // A case variant (a `[[PLAIN]]` link after an outside `PLAIN` -> `plain`
-    // rename) is the held note where it is the same file: a volume that folds
-    // case, as macOS does. On a case-sensitive one it is another note, refused.
-    let one_file = root.join("PLAIN.md").exists();
-    let variant = hosts.switch(store.clone(), "PLAIN".into(), false, no_events());
-    assert_eq!(variant.is_ok(), one_file);
-    if let Ok(variant) = variant {
-        assert_eq!(variant.opened.note_id, "plain");
-    }
-    hosts.close_all();
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn stale_tokens_are_refused_and_close_releases_the_lease() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();

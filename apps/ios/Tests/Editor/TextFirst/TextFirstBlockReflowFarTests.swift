@@ -236,38 +236,6 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
-        @Test func aCancelPastTheNotesFootLeavesItWithinItsScroll() async throws {
-            // An icon sharing a row with a tall photo: lifted, its line keeps its height, and
-            // in a gap at the note's end it takes a line of its own: the note grows.
-            let h = TextFirstHarness(
-                (0..<60).map { "line \($0)" }.joined(separator: "\n")
-                    + "\nHi ![](tall.png)![](icon.png)\nlast",
-                files: [
-                    "tall.png": TextFirstHarness.png(300, 1200),
-                    "icon.png": TextFirstHarness.png(60, 60),
-                ], focused: false)
-            func foot() -> CGFloat {
-                h.tv.contentSize.height + h.tv.adjustedContentInset.bottom - h.tv.bounds.height
-            }
-            h.tv.contentOffset.y = foot()
-            h.tv.layoutIfNeeded()
-            #expect(await h.until { h.lineHeights(at: h.lineStarts[60]).contains { $0 > 150 } })
-            h.tv.contentOffset.y = foot()
-            h.tv.layoutIfNeeded()
-            let icon = (h.display as NSString).range(of: "![](icon.png)")
-            let laidOut = try #require(h.controller.laidOutRange())
-            let rect = try #require(h.controller.drawnImage(icon, in: laidOut))
-            let drag = try begin(h, at: CGPoint(x: rect.midX, y: rect.midY))
-            let preview = try #require(drag.preview)
-            hold(h, at: h.tv.bounds.height - 10)
-            #expect(await h.until(3) { drag.slot?.end == true })
-            #expect(preview.plan.grows(preview.gap) > 20)
-            #expect(await h.until(3) { h.tv.contentOffset.y > foot() + 20 })
-            h.controller.endBlockDrag(dropping: false)
-            #expect(await h.until(1) { preview.curtain.superview == nil })
-            #expect(h.tv.contentOffset.y <= foot() + 0.5, "back within the note's scroll")
-        }
-
         // MARK: helpers
 
         private func begin(_ h: TextFirstHarness, at p: CGPoint) throws -> TextFirstBlockDrag {

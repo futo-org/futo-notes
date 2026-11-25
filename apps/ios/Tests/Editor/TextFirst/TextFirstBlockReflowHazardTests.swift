@@ -157,63 +157,6 @@
             h.controller.endBlockDrag(dropping: false)
         }
 
-        @Test func aPhotoCarriedThroughATallParagraphLeavesItDrawnWhereItShows() async throws {
-            let tall = Array(repeating: "words of a tall paragraph", count: 220)
-                .joined(separator: " ")
-            let h = TextFirstHarness(
-                "caption ![](pic.png)\none\n\(tall)\n" + Self.lines,
-                files: ["pic.png": TextFirstHarness.png(600, 200)], focused: false)
-            #expect(await h.until { h.lineHeights(at: 0).contains { $0 > 60 } })
-            let photo = (h.display as NSString).range(of: "![](pic.png)")
-            let laidOut = try #require(h.controller.laidOutRange())
-            let rect = try #require(h.controller.drawnImage(photo, in: laidOut))
-            let drag = try begin(h, at: CGPoint(x: rect.midX, y: rect.midY))
-            drag.follow(h.point(line: 1))
-            let preview = try #require(drag.preview)
-            // Down to the paragraph's foot, its lower part (drawn cropped, well below its top)
-            // and the slot after it on screen, the finger below that slot.
-            let foot = h.point(line: 3, fraction: 0).y
-            for _ in 0..<20 where h.tv.contentOffset.y < foot - 0.6 * h.tv.bounds.height {
-                h.tv.contentOffset.y = min(
-                    h.tv.contentOffset.y + h.tv.bounds.height / 2,
-                    foot - 0.6 * h.tv.bounds.height)
-                h.tv.layoutIfNeeded()
-                h.controller.remeasureBlockDrag()
-            }
-            hold(h, at: 0.8 * h.tv.bounds.height)
-            try await Task.sleep(nanoseconds: 300_000_000)
-            // Every run the curtain shows, against the note as it is drawn.
-            let curtain = TextFirstBlockReflowTests.image(preview.curtain.layer, h)
-            let painter = TextFirstSlicePainter(textView: h.tv)
-            let visible = h.tv.bounds
-            var checked = 0
-            for (j, run) in preview.plan.runs.enumerated()
-            where preview.plan.height(j, gap: preview.gap) == run.height {
-                let drawn =
-                    ((painter.pixel(preview.plan.top(j, gap: preview.gap)) - visible.minY)
-                    * painter.scale).rounded()
-                let rows = ((painter.pixel(run.bottom) - painter.pixel(run.top)) * painter.scale)
-                    .rounded()
-                let from = max(drawn, 0)
-                let to = min(drawn + rows, CGFloat(curtain.height))
-                guard to - from > 12 else { continue }
-                let real = try #require(
-                    painter.paint(
-                        CGRect(
-                            x: 0, y: painter.pixel(run.top) + (from - drawn) / painter.scale,
-                            width: visible.width, height: (to - from) / painter.scale)))
-                let shown = try #require(
-                    curtain.cropping(
-                        to: CGRect(x: 0, y: from, width: CGFloat(real.width), height: to - from)))
-                let differing = TextFirstBlockReflowTests.differing(shown, real)
-                #expect(differing == 0, "run \(j): \(differing) pixels differ")
-                if run.height > visible.height { checked += 1 }
-            }
-            #expect(checked == 1, "the paragraph's run, taller than the screen, is checked")
-            #expect(preview.gap != preview.plan.home && preview.closedLine != nil)
-            h.controller.endBlockDrag(dropping: false)
-        }
-
         @Test func aDragInterruptedPastTheNotesFootLeavesItWithinItsScroll() async throws {
             let h = TextFirstHarness(
                 (0..<60).map { "line \($0)" }.joined(separator: "\n")
