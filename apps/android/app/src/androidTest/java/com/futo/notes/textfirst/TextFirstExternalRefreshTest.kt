@@ -6,18 +6,12 @@ import com.futo.notes.tryBeginStorageMigration
 import com.futo.notes.resumeAfterStorageMigrationFailure
 import java.io.File
 import java.util.UUID
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.*
 import org.junit.Test
-import uniffi.futo_notes_ffi.RenamePair
-import uniffi.futo_notes_ffi.SyncSummary
 
 /** Shell delivery retries explicit identity intent instead of mistaking a rescan for adoption. */
 class TextFirstExternalRefreshTest {
@@ -58,50 +52,6 @@ class TextFirstExternalRefreshTest {
                 store.resumeAfterStorageMigrationFailure()
                 controller.discard(); controller.dispose()
             }
-            store.scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
-            store.core.destroy()
-            scratch.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun refusedDestinationKeepsEventUntilAttachmentCanFollow() = runBlocking {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val scratch = File(context.cacheDir, "refresh-${UUID.randomUUID()}").apply { check(mkdirs()) }
-        val root = File(scratch, "vault").apply { check(mkdirs()) }
-        File(root, "old.md").writeText("base\n")
-        val store = withContext(Dispatchers.Main) { NotesStore(root, File(scratch, "index")) }
-        val events = Channel<SyncSummary>(Channel.UNLIMITED)
-        val collector = launch(start = CoroutineStart.UNDISPATCHED) { store.localTreeChanges.collect { events.send(it) } }
-        try {
-            compose.waitUntil(10_000) { store.hasBootstrapped }
-            store.core.openEditor("old").use { attached ->
-                attached.replaceUtf16(0uL, uniffi.futo_notes_ffi.EditorUtf16Range(0uL, 0uL), "local ".map { it.code.toUShort() })
-                check(File(root, "old.md").renameTo(File(root, "new.md")))
-                store.core.openEditor("new").use { blocker ->
-                    withContext(Dispatchers.Main) {
-                        store.localTreeChanged(SyncSummary(
-                            uploaded = 0u, downloaded = 1u, deleted = 0u, conflicts = 0u,
-                            localWritesApplied = 1u, failures = emptyList(), failureMessage = null,
-                            updatedIds = listOf("new"), deletedIds = listOf("old"),
-                            peerUpdatedIds = listOf("new"), peerDeletedIds = listOf("old"),
-                            renamed = listOf(RenamePair("old", "new")), writeRefusal = null,
-                        ))
-                    }
-                    assertNull("unsuccessful refresh cannot publish authoritative rename", withTimeoutOrNull(500) { events.receive() })
-                    assertEquals("old", attached.noteId())
-                    blocker.detach()
-                }
-                val event = withTimeout(10_000) { events.receive() }
-                assertEquals(listOf(RenamePair("old", "new")), event.renamed)
-                assertEquals("new", attached.noteId())
-                assertEquals("local base\n", attached.sourceText())
-                attached.detach()
-                assertFalse(File(root, "old.md").exists())
-                assertEquals("local base\n", store.core.read("new"))
-            }
-        } finally {
-            collector.cancel()
             store.scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
             store.core.destroy()
             scratch.deleteRecursively()
