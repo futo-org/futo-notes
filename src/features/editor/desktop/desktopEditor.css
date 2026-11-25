@@ -123,6 +123,9 @@
 
 .desktop-editor .italic {
   font-style: italic;
+  /* The line sets the row height. A fallback italic face can otherwise enlarge it
+   * while the web font loads and leave a gap between selection bands. */
+  line-height: 0;
 }
 
 .desktop-editor .strike {
