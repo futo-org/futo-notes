@@ -9,9 +9,16 @@
 //   just ci-wait <sha>            # newest pipeline for that sha
 //   just ci-wait <branch>         # newest pipeline for that ref
 //   Numeric names: use sha:<sha> or ref:<branch> to distinguish them from IDs.
-//   options: --timeout <min> (45) --interval <sec> (20) --json --no-trace
-//   exit: 0 success · 1 failed/canceled/skipped/blocked-on-manual · 2 timeout
-//         3 usage/auth/no pipeline
+//   options: --timeout <min> (120) --interval <sec> (20) --json --no-trace
+//            --wait-all (keep waiting after a blocking job fails)
+//   exit: 0 success · 1 a blocking job failed, or failed/canceled/skipped/
+//         blocked-on-manual · 2 timeout · 3 usage/auth/no pipeline
+//
+// It returns as soon as any job that is not allow_failure fails, without
+// waiting for the rest of the pipeline: a tag pipeline keeps "running" for
+// up to an hour after a broken build. A failed API call is retried, not fatal.
+// Run it with the Bash tool's run_in_background rather than hand-writing a
+// polling loop; that is what this script is for.
 //   just mr-status                # open MRs, oldest first
 // Merge requests get no pipeline (.gitlab-ci.yml workflow:), so there is no
 // MR target: `mr:291` / `!291` is a usage error, not a branch name.
@@ -63,7 +70,9 @@ export function makeApi(token, fetchImpl = globalThis.fetch) {
     async json(pathAndQuery) {
       const res = await fetchImpl(`${API}/projects/${PROJECT}${pathAndQuery}`, { headers });
       if (res.status === 401 || res.status === 403) {
-        throw new Error(`GitLab API ${res.status} — set GITLAB_TOKEN (read_api scope)`);
+        const error = new Error(`GitLab API ${res.status} — set GITLAB_TOKEN (read_api scope)`);
+        error.fatal = true;
+        throw error;
       }
       if (!res.ok) throw new Error(`GitLab API ${res.status} for ${pathAndQuery}`);
       return res.json();
@@ -82,6 +91,22 @@ export async function findPipeline(target, api) {
     target.kind === 'sha' ? `sha=${target.sha}` : `ref=${encodeURIComponent(target.ref)}`;
   const list = await api.json(`/pipelines?${query}&per_page=1`);
   return list[0] ?? null;
+}
+
+// Every job and trigger job (bridge), across pages. /jobs leaves bridges out,
+// and a blocking trigger can fail while the rest of the pipeline runs. Jobs
+// land in `into` as each page arrives, so a failure already read survives an
+// error on a later page.
+export async function listJobs(api, pipelineId, into = []) {
+  for (const kind of ['jobs', 'bridges']) {
+    for (let page = 1; ; page++) {
+      const batch = await api.json(`/pipelines/${pipelineId}/${kind}?per_page=100&page=${page}`);
+      if (!Array.isArray(batch)) throw new Error(`GitLab API returned no list for ${kind}`);
+      into.push(...batch);
+      if (batch.length < 100) break;
+    }
+  }
+  return into;
 }
 
 export function summarizeJobs(jobs) {
@@ -121,12 +146,40 @@ export async function waitForPipeline(
     log = () => {},
     now = Date.now,
     withTrace = true,
+    waitAll = false,
+    maxApiErrors = 10,
   },
 ) {
   const start = now();
+  let apiErrors = 0;
+  // A network blip or a 5xx is retried; only auth errors or a run of
+  // maxApiErrors failures in a row end the wait.
+  const attempt = async (fn) => {
+    try {
+      const value = await fn();
+      apiErrors = 0;
+      return { ok: true, value };
+    } catch (error) {
+      if (error.fatal || ++apiErrors >= maxApiErrors) return { ok: false, error, giveUp: true };
+      log(
+        `[+${fmtElapsed(now() - start)}] GitLab API error, retrying (${apiErrors}/${maxApiErrors}): ${error.message}`,
+      );
+      return { ok: false, error };
+    }
+  };
+  const timedOut = () => now() - start > timeoutMs;
+
   let pipeline = null;
   for (;;) {
-    pipeline = await findPipeline(target, api);
+    const found = await attempt(() => findPipeline(target, api));
+    if (!found.ok) {
+      if (found.giveUp) throw found.error;
+      if (timedOut())
+        return { pipeline: null, status: 'not-found', jobs: [], timedOut: true, failed: [] };
+      await sleep(intervalMs);
+      continue;
+    }
+    pipeline = found.value;
     if (pipeline) break;
     if (now() - start > Math.min(timeoutMs, 3 * 60_000)) {
       return { pipeline: null, status: 'not-found', jobs: [], timedOut: false, failed: [] };
@@ -136,25 +189,67 @@ export async function waitForPipeline(
   }
 
   let jobs = [];
+  let failFast = false;
+  const reportedAllowed = new Set();
   for (;;) {
-    pipeline = await api.json(`/pipelines/${pipeline.id}`);
-    jobs = await api.json(`/pipelines/${pipeline.id}/jobs?per_page=100`);
+    const id = pipeline.id;
+    const partial = [];
+    const polled = await attempt(async () => [
+      await api.json(`/pipelines/${id}`),
+      await listJobs(api, id, partial),
+    ]);
+    if (!polled.ok) {
+      if (!waitAll && summarizeJobs(partial).failed.length) {
+        jobs = partial;
+        failFast = true;
+        break;
+      }
+      if (polled.giveUp) throw polled.error;
+      if (timedOut()) {
+        const failed = summarizeJobs(jobs).failed;
+        return { pipeline, status: pipeline.status, jobs, timedOut: true, failFast, failed };
+      }
+      await sleep(intervalMs);
+      continue;
+    }
+    [pipeline, jobs] = polled.value;
     const sum = summarizeJobs(jobs);
+    // A blocking failure decides the answer even when the pipeline reports a
+    // terminal status, so a failed job under a "success" pipeline exits 1.
+    if (sum.failed.length && !waitAll) {
+      failFast = !TERMINAL.has(pipeline.status);
+      break;
+    }
     if (TERMINAL.has(pipeline.status)) break;
+    for (const j of jobs) {
+      if (j.status === 'failed' && j.allow_failure && !reportedAllowed.has(j.id)) {
+        reportedAllowed.add(j.id);
+        log(`[+${fmtElapsed(now() - start)}] ${j.name} failed (allowed to fail)`);
+      }
+    }
     log(
-      `[+${fmtElapsed(now() - start)}] pipeline ${pipeline.id} ${pipeline.status} — ${sum.done}/${sum.total} jobs done`,
+      `[+${fmtElapsed(now() - start)}] pipeline ${pipeline.id} ${pipeline.status} — ${sum.done}/${sum.total} jobs done${sum.failed.length ? `, ${sum.failed.length} blocking failed` : ''}`,
     );
-    if (now() - start > timeoutMs) {
-      return { pipeline, status: pipeline.status, jobs, timedOut: true, failed: sum.failed };
+    if (timedOut()) {
+      return {
+        pipeline,
+        status: pipeline.status,
+        jobs,
+        timedOut: true,
+        failFast,
+        failed: sum.failed,
+      };
     }
     await sleep(intervalMs);
   }
 
   const failed = summarizeJobs(jobs).failed;
   if (withTrace) {
-    for (const job of failed) job.traceTail = tailLines(await api.text(`/jobs/${job.id}/trace`));
+    for (const job of failed) {
+      job.traceTail = tailLines(await api.text(`/jobs/${job.id}/trace`).catch(() => ''));
+    }
   }
-  return { pipeline, status: pipeline.status, jobs, timedOut: false, failed };
+  return { pipeline, status: pipeline.status, jobs, timedOut: false, failFast, failed };
 }
 
 export function formatResult(r) {
@@ -172,6 +267,11 @@ export function formatResult(r) {
     L.push('', `--- ${j.name} (job ${j.id}) last lines ---`);
     L.push(j.traceTail ?? '(trace not fetched)');
   }
+  if (r.failFast)
+    L.push(
+      '',
+      `stopped at the first blocking failure; the pipeline is still ${r.status} (--wait-all to keep waiting)`,
+    );
   if (r.status === 'manual') L.push('', 'blocked on a manual job — a human has to start it');
   return L.join('\n');
 }
@@ -224,7 +324,7 @@ async function main() {
   }
   if (cmd !== 'wait') {
     process.stderr.write(
-      'usage: ci-wait.mjs wait <pipeline-id|sha|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
+      'usage: ci-wait.mjs wait <pipeline-id|sha|branch> [--timeout min] [--interval sec] [--wait-all] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
     );
     process.exit(3);
   }
@@ -237,14 +337,16 @@ async function main() {
   }
   const result = await waitForPipeline(target, {
     api,
-    timeoutMs: Number(flags.timeout ?? 45) * 60_000,
+    timeoutMs: Number(flags.timeout ?? 120) * 60_000,
     intervalMs: Number(flags.interval ?? 20) * 1000,
     log: (line) => process.stderr.write(line + '\n'),
     withTrace: flags['no-trace'] !== true,
+    waitAll: flags['wait-all'] === true,
   });
   if (flags.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   else process.stdout.write(formatResult(result) + '\n');
   if (!result.pipeline) process.exit(3);
+  if (result.failFast || result.failed.length) process.exit(1);
   process.exit(result.timedOut ? 2 : exitCodeFor(result.status));
 }
 

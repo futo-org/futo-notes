@@ -36,8 +36,9 @@ curl -s $H "$API/pipelines/<PIPELINE_ID>/jobs?per_page=100" \
 curl -s $H "$API/jobs/<JOB_ID>/trace" | tail -80
 ```
 
-`glab ci status` / `glab ci view` work for quick looks; use the raw API when you need job traces
-or to script a watch loop.
+`glab ci status` / `glab ci view` work for quick looks; use the raw API when you need job traces.
+To wait on a pipeline, run `just ci-wait <pipeline-id|sha|ref>` in the background; never script
+your own watch loop.
 
 For pipelines on the current branch, `glab ci list -b <branch>` may parse the branch as a date and
 fail. Use the encoded project path through `glab api`:
@@ -114,15 +115,9 @@ Apply the rule for the class; do not just patch the symptom:
   deleting tags; release creation is retag-safe but partially-published artifacts from the failed
   run must be accounted for.
 
-Watch loop after pushing a fix (jobs run 10–60 min; poll accordingly):
-
-```bash
-watch_pipeline() {
-  curl -s $H "$API/pipelines/$1" | jq -r '"\(.status)  \(.web_url)"'
-  curl -s $H "$API/pipelines/$1/jobs?per_page=100" \
-    | jq -r '.[] | "\(.status | .[0:7])\t\(.stage)\t\(.name)"' | sort
-}
-```
+Watch a pipeline after pushing a fix with `just ci-wait <pipeline-id|sha|ref>` (Bash
+`run_in_background`). It exits 1 on the first blocking job failure without waiting for the slow
+tail, and 0 only on success.
 
 ## Pre-tag checklist (run when asked for a "pre-tag check" or before /release tags)
 

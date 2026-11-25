@@ -50,7 +50,7 @@ orient *args:
   #!/usr/bin/env bash
   exec node scripts/agent-orient.mjs "$@"
 
-# Block until a GitLab pipeline finishes; exit by its status; print failed traces.
+# Block on a GitLab pipeline until it finishes or a blocking job fails; print failed traces.
 ci-wait *args:
   #!/usr/bin/env bash
   exec node scripts/ci-wait.mjs wait "$@"

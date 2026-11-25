@@ -74,6 +74,8 @@ function fakeApi(script) {
     calls,
     async json(p) {
       calls.push(p);
+      // Bridges are a second listing; tests that don't script one have none.
+      if (p.includes('/bridges') && !script.some(([k]) => k.includes('/bridges'))) return [];
       for (const [prefix, responses] of script) {
         if (p.startsWith(prefix)) {
           const r = responses.length > 1 ? responses.shift() : responses[0];
@@ -159,6 +161,220 @@ describe('waitForPipeline', () => {
     );
     expect(result.timedOut).toBe(true);
     expect(result.status).toBe('running');
+  });
+
+  it('stops at the first blocking failure while the pipeline is still running', async () => {
+    const api = fakeApi([
+      [
+        '/pipelines/9/jobs',
+        [
+          [
+            { id: 1, name: 'build:windows', status: 'failed', allow_failure: false },
+            { id: 2, name: 'test:puppet-gates', status: 'failed', allow_failure: true },
+            { id: 3, name: 'publish:ios:appstore', status: 'running' },
+          ],
+        ],
+      ],
+      ['/pipelines/9', [{ id: 9, status: 'running', web_url: 'u' }]],
+    ]);
+    const sleeps = [];
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 9 },
+      {
+        api,
+        sleep: async (ms) => sleeps.push(ms),
+        timeoutMs: 60_000,
+        intervalMs: 5,
+        log: () => {},
+      },
+    );
+    expect(sleeps).toEqual([]);
+    expect(result.failFast).toBe(true);
+    expect(result.status).toBe('running');
+    expect(result.failed.map((j) => j.name)).toEqual(['build:windows']);
+    expect(result.failed[0].traceTail).toContain('ERROR: boom');
+    expect(formatResult(result)).toContain('stopped at the first blocking failure');
+  });
+
+  it('keeps waiting past an allowed failure, and past a blocking one with waitAll', async () => {
+    const allowed = [{ id: 2, name: 'gates', status: 'failed', allow_failure: true }];
+    const blocking = [{ id: 1, name: 'build', status: 'failed', allow_failure: false }];
+    for (const [jobs, opts] of [
+      [allowed, {}],
+      [blocking, { waitAll: true }],
+    ]) {
+      const api = fakeApi([
+        ['/pipelines/5/jobs', [jobs]],
+        [
+          '/pipelines/5',
+          [
+            { id: 5, status: 'running' },
+            { id: 5, status: 'failed' },
+          ],
+        ],
+      ]);
+      const result = await waitForPipeline(
+        { kind: 'pipeline', id: 5 },
+        { api, sleep: async () => {}, timeoutMs: 60_000, intervalMs: 1, log: () => {}, ...opts },
+      );
+      expect(result.failFast).toBe(false);
+      expect(result.status).toBe('failed');
+    }
+  });
+
+  it('retries API blips instead of dying, but gives up on auth errors', async () => {
+    let calls = 0;
+    const flaky = fakeApi([
+      ['/pipelines/3/jobs', [[{ id: 1, name: 'a', status: 'success' }]]],
+      [
+        '/pipelines/3',
+        [
+          () => {
+            if (++calls <= 2) throw new Error('GitLab API 502 for /pipelines/3');
+            return { id: 3, status: 'success' };
+          },
+        ],
+      ],
+    ]);
+    const logs = [];
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 3 },
+      {
+        api: flaky,
+        sleep: async () => {},
+        timeoutMs: 60_000,
+        intervalMs: 1,
+        log: (l) => logs.push(l),
+      },
+    );
+    expect(result.status).toBe('success');
+    expect(logs.filter((l) => l.includes('retrying'))).toHaveLength(2);
+
+    const denied = Object.assign(new Error('GitLab API 403'), { fatal: true });
+    const auth = fakeApi([
+      [
+        '/pipelines/4',
+        [
+          () => {
+            throw denied;
+          },
+        ],
+      ],
+    ]);
+    await expect(
+      waitForPipeline(
+        { kind: 'pipeline', id: 4 },
+        { api: auth, sleep: async () => {}, timeoutMs: 60_000, intervalMs: 1, log: () => {} },
+      ),
+    ).rejects.toThrow('403');
+  });
+
+  it('exits on a blocking failure even when the pipeline reports success', async () => {
+    const api = fakeApi([
+      ['/pipelines/6/jobs', [[{ id: 1, name: 'late', status: 'failed', allow_failure: false }]]],
+      ['/pipelines/6', [{ id: 6, status: 'success' }]],
+    ]);
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 6 },
+      { api, sleep: async () => {}, timeoutMs: 60_000, intervalMs: 1, log: () => {} },
+    );
+    expect(result.failed.map((j) => j.name)).toEqual(['late']);
+  });
+
+  it('keeps a failure from page 1 when page 2 errors, and watches trigger jobs', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      id: i,
+      name: `j${i}`,
+      status: i === 0 ? 'failed' : 'running',
+      allow_failure: false,
+    }));
+    const api = fakeApi([
+      ['/pipelines/2/jobs?per_page=100&page=1', [page1]],
+      [
+        '/pipelines/2/jobs?per_page=100&page=2',
+        [
+          () => {
+            throw new Error('GitLab API 502');
+          },
+        ],
+      ],
+      ['/pipelines/2', [{ id: 2, status: 'running' }]],
+    ]);
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 2 },
+      {
+        api,
+        sleep: async () => {},
+        timeoutMs: 60_000,
+        intervalMs: 1,
+        log: () => {},
+        withTrace: false,
+      },
+    );
+    expect(result.failFast).toBe(true);
+    expect(result.failed.map((j) => j.name)).toEqual(['j0']);
+
+    const bridged = fakeApi([
+      ['/pipelines/1/jobs', [[{ id: 1, name: 'build', status: 'running' }]]],
+      [
+        '/pipelines/1/bridges',
+        [[{ id: 2, name: 'pkg:trigger', status: 'failed', allow_failure: false }]],
+      ],
+      ['/pipelines/1', [{ id: 1, status: 'running' }]],
+    ]);
+    const viaBridge = await waitForPipeline(
+      { kind: 'pipeline', id: 1 },
+      { api: bridged, sleep: async () => {}, timeoutMs: 60_000, intervalMs: 1, log: () => {} },
+    );
+    expect(viaBridge.failed.map((j) => j.name)).toEqual(['pkg:trigger']);
+  });
+
+  it('honours the timeout while retrying API errors', async () => {
+    let t = 0;
+    const api = fakeApi([
+      [
+        '/pipelines/4',
+        [
+          () => {
+            throw new Error('GitLab API 502');
+          },
+        ],
+      ],
+    ]);
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 4 },
+      {
+        api,
+        sleep: async (ms) => {
+          t += ms;
+        },
+        now: () => t,
+        timeoutMs: 1_000,
+        intervalMs: 600,
+        log: () => {},
+        maxApiErrors: 100,
+      },
+    );
+    expect(result.timedOut).toBe(true);
+    expect(t).toBeLessThan(5_000);
+  });
+
+  it('reads every page of jobs', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      id: i,
+      name: `j${i}`,
+      status: 'success',
+    }));
+    const api = fakeApi([
+      ['/pipelines/8/jobs?per_page=100&page=1', [page1]],
+      ['/pipelines/8/jobs?per_page=100&page=2', [[{ id: 100, name: 'late', status: 'success' }]]],
+      ['/pipelines/8', [{ id: 8, status: 'success' }]],
+    ]);
+    const result = await waitForPipeline(
+      { kind: 'pipeline', id: 8 },
+      { api, sleep: async () => {}, timeoutMs: 60_000, intervalMs: 1, log: () => {} },
+    );
+    expect(result.jobs).toHaveLength(101);
   });
 
   it('gives up when no pipeline appears within the grace period', async () => {

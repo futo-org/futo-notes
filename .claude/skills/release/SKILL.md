@@ -209,16 +209,20 @@ git push origin <version>
 
 The tag push runs the build jobs (`publish:ios` uploads to TestFlight as soon as `build:ios-native` is done), then `release:gate`, then `publish:android`, `publish:ios:appstore`, and `release`, then `publish:website-post` (allow-failure: posts the changelog to notes.futo.tech unless the website already has one; see `release-notes/README.md`).
 
-Poll pipeline status until it finishes:
+Watch it with `just ci-wait`, run with the Bash tool's `run_in_background`. Do not write
+your own polling loop: hand-written watchers have repeatedly missed failed jobs.
 
 ```bash
-glab ci status
+just ci-wait ref:v<version>
 ```
 
-**GATE: Do NOT proceed to Step 8 until the pipeline status is `success`.**
+It exits 1 as soon as any blocking job fails, even while the rest of the pipeline is still
+running, and prints that job's log tail. It exits 0 only when the pipeline succeeds. It retries
+API errors itself.
 
-- If the pipeline is still running, wait 30s and check again.
-- If any job fails, report details (`glab ci view`) and **STOP**. Ask the user how to proceed. Do NOT post to Zulip.
+**GATE: Do NOT proceed to Step 8 until `just ci-wait` exits 0.**
+
+- On exit 1, report the failed jobs and **STOP**. Ask the user how to proceed. Do NOT post to Zulip.
 - Only continue to Step 8 after confirming pipeline passed.
 
 The two store-submission jobs are the slow tail, and both are safe to retry:
