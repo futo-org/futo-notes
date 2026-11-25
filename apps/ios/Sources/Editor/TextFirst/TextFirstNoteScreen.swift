@@ -31,8 +31,11 @@ struct TextFirstNoteScreen: View {
     @State private var renameField = ""
     @State private var showMove = false
     @State private var showDeleteConfirm = false
-    @State private var actionBusy = false
-    @State private var actionTask: Task<Void, Never>?
+    @State var actionBusy = false
+    @State var actionTask: Task<Void, Never>?
+    /// Heights of the views stacked under the editor, which it keeps its last lines above.
+    @State private var completionHeight: CGFloat = 0
+    @State private var findBarHeight: CGFloat = 0
     @Binding var navPath: [Route]
 
     let autoFocus: Bool
@@ -80,13 +83,17 @@ struct TextFirstNoteScreen: View {
                     // safe-area inset keeps the last line reachable); the find bar below
                     // stays inside the safe area, so it sits above the indicator.
                     TextFirstEditorRepresentable(
-                        controller: controller, theme: colorScheme == .dark ? "dark" : "light"
+                        controller: controller, theme: colorScheme == .dark ? "dark" : "light",
+                        belowCover: completionHeight + findBarHeight
                     )
                     .ignoresSafeArea(.container, edges: .bottom)
                     TextFirstCompletionList(
                         model: controller.completionModel, localization: localization,
                         accept: { controller.acceptCompletion(noteId: $0) },
                         dismiss: { controller.dismissCompletion() })
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        completionHeight = $0
+                    }
                 } else {
                     Color.clear
                 }
@@ -94,6 +101,9 @@ struct TextFirstNoteScreen: View {
             // A layout sibling above the keyboard, so the note never runs under the bar.
             if let controller {
                 TextFirstFindBar(model: controller.findModel, controller: controller)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        findBarHeight = $0
+                    }
             }
         }
         // Under the keyboard too: its rounded top corners and its dismiss animation
@@ -426,27 +436,5 @@ struct TextFirstNoteScreen: View {
         return NoteItem(
             id: noteId, title: parts.title, folder: parts.folder,
             modified: Date(), richPreview: "", tags: [])
-    }
-
-    /// Drain the admitted title work and settle input before using the existing store action.
-    /// The store retargets or terminates the attachment atomically with its file mutation.
-    private func performNoteAction(
-        _ action: @escaping (TextFirstEditorController) async -> Bool
-    ) -> Task<Bool, Never>? {
-        guard let controller, !controller.opening, !controller.engineBusy, !actionBusy, !leaving
-        else {
-            return nil
-        }
-        actionBusy = true
-        controller.textView.resignFirstResponder()
-        controller.finishComposition()
-        let pendingRename = renameTask
-        let task = Task { @MainActor in
-            await pendingRename?.value
-            defer { actionBusy = false }
-            return await action(controller)
-        }
-        actionTask = Task { _ = await task.value }
-        return task
     }
 }
