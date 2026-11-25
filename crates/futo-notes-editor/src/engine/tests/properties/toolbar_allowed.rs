@@ -98,13 +98,15 @@ fn press(engine: &mut Engine, command: ToolbarCommand, level: u8) {
         return;
     }
     if command == ToolbarCommand::Link {
-        // A web address the link there, if any, does not have.
-        let link = engine.inspect_link(revision, selection).unwrap();
-        let destination = match link {
-            Some(link) if link.destination == "https://example.com" => "https://example.org",
-            _ => "https://example.com",
-        };
-        let _ = engine.set_link_view(revision, selection, destination, &mut ok);
+        // A selection may already link to the first destination on every selected line.
+        for destination in ["https://example.com", "https://example.org"] {
+            if matches!(
+                engine.set_link_view(revision, selection, destination, &mut ok),
+                Ok(Some(_))
+            ) {
+                break;
+            }
+        }
         return;
     }
     // The first four commands are the four formats, in order.
@@ -267,4 +269,22 @@ fn only_the_commands_that_act_are_allowed_in_code_dividers_and_tables() {
         let toolbar = prepared(note, Setup::Select(at, at, forward)).toolbar();
         assert_eq!(toolbar.allowed.contains(&Image), want, "{note:?} at {at}");
     }
+}
+
+#[test]
+fn selecting_a_link_and_its_trailing_space_allows_changing_the_destination() {
+    let mut session = crate::EditorSession::open("[Docs](https://example.com) next");
+    let selection = range(0, "Docs ".len());
+    session.select(Revision(0), selection).unwrap();
+    assert!(session
+        .toolbar_state()
+        .allowed
+        .contains(&ToolbarCommand::Link));
+
+    session
+        .set_link(Revision(0), selection, "https://new.example", &mut |_| {
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(session.source_text(), "[Docs](https://new.example) next");
 }

@@ -67,9 +67,19 @@ export class EditorInput {
   paste(event: ClipboardEvent): void {
     event.preventDefault();
     const text = event.clipboardData?.getData('text/plain') ?? '';
-    const selection = this.view.selection.sync();
+    const view = this.view;
+    const selection = view.selection.sync();
     if (!text || !selection) return;
-    this.view.run((engine) => engine.paste(this.view.bytes(selection), text));
+    const range = view.bytes(selection);
+    view.run((engine) => {
+      const noteId = view.noteId();
+      if (range.start !== range.end && noteId !== null) {
+        const destination = engine.externalLinkUrl(engine.normalizeLinkDestination(noteId, text));
+        if (destination && view.formatting.allows('Link'))
+          return engine.setLink(range, destination);
+      }
+      return engine.paste(range, text);
+    });
   }
 
   /** Copy and cut carry the selection's exact source, markers and all. */

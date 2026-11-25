@@ -45,14 +45,12 @@ impl Engine {
         Ok(self.rewrite(range, edited))
     }
 
-    /// Whether `link_selection` would change a line of `bodies` (the
-    /// selection's): the lines linked one at a time until one changes.
-    pub(super) fn links_any(&self, bodies: &[Body], destination: &str) -> bool {
+    /// A link that already has the probe destination can still be retargeted.
+    pub(super) fn can_link_selection(&self, bodies: &[Body]) -> bool {
         bodies.iter().any(|body| {
-            let linked = self.linked_line(body, destination, &mut 0);
-            linked
+            self.linked_line(body, "https://example.com", &mut 0)
                 .flatten()
-                .is_some_and(|draft| draft.0.text != body.entry.text)
+                .is_some()
         })
     }
 

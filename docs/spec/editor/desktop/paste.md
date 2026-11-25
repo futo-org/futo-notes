@@ -12,6 +12,11 @@ against the window's drop guard) is not among them.
   one Undo step; Paste and Match Style is the same paste. A clipboard's HTML is not read: text
   copied from a web page or a document pastes as its plain text. → src/features/editor/desktop/
   input.ts `paste`
+- Over selected text where Link is available, pasting a single external address applies the
+  [Link command](links.md) in one Undo step. The selected text becomes the label. A selection
+  inside an existing link updates that link’s destination. The Link dialog’s address rules apply:
+  `example.com` becomes `https://example.com` unless it names a note. A bare email address is an
+  ordinary paste, while an explicit `mailto:` address links the selection. → input.ts `paste`
 
 > **Gap:** Rich paste (Mod+V reads HTML that holds formatting as its Markdown, Shift+Mod+V the
 > plain text; Mason 2026-11-05) needs the engine's HTML paste,

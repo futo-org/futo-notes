@@ -69,6 +69,27 @@ await story('a text paste stays text: its HTML is not read and no file is made',
   }),
 );
 
+await story('pasting an external address links selected text in one Undo step', () =>
+  inScratchNote(async (noteId) => {
+    pasted('📚 Read **docs** now');
+    const selectDocs = () => act('do', 'Select', { from: 8, to: 12, expect: 'docs' });
+    selectDocs();
+    pasted('example.com');
+    assert.equal(await saved(noteId), '📚 Read [**docs**](https://example.com) now');
+    act('do', 'Undo');
+    assert.equal(await saved(noteId), '📚 Read **docs** now');
+
+    selectDocs();
+    pasted('mailto:name@example.com');
+    assert.equal(await saved(noteId), '📚 Read [**docs**](mailto:name@example.com) now');
+    act('do', 'Undo');
+    selectDocs();
+    pasted('name@example.com');
+    assert.ok((await saved(noteId)).includes('name@example.com'));
+    assert.ok(!read('doc').lines[0].text.includes('docs'));
+  }),
+);
+
 await story('dropped pictures land at the drop point, in order, each its own Undo step', () =>
   withPictures(async (noteId, keep) => {
     pasted('first second');

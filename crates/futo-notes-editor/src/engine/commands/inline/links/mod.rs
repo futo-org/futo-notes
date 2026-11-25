@@ -186,7 +186,7 @@ impl Engine {
     pub(super) fn link_acts(&self, bodies: &[Body]) -> bool {
         let current = self.link_at(self.selection).map(|found| found.span.kind);
         if current.is_none() && self.selection.start != self.selection.end {
-            return self.links_any(bodies, "https://example.com");
+            return self.can_link_selection(bodies);
         }
         let destination = match current {
             Some(SpanKind::Link { destination, .. } | SpanKind::Url { destination })
