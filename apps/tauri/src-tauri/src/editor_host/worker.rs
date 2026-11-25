@@ -267,9 +267,13 @@ impl Run {
 
     /// Answers jobs in arrival order and saves when the Store says one is due.
     fn serve(mut self, inbox: Receiver<Job>) {
+        // Whether the last job or timeout was answered under a hold. Read before
+        // the reply goes out, so a release that follows the reply cannot re-arm
+        // the timer in the gap before the next wait.
+        let mut answered_held = false;
         loop {
             // Held, nothing is due: after a release the next job re-arms the timer.
-            let deadline = (!self.hold.held())
+            let deadline = (!answered_held && !self.hold.held())
                 .then(|| self.host.save_delay())
                 .flatten()
                 .map(|delay| Instant::now() + delay);
@@ -277,6 +281,7 @@ impl Run {
                 Some(at) => inbox.recv_timeout(at.saturating_duration_since(Instant::now())),
                 None => inbox.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
+            answered_held = self.hold.held();
             match job {
                 Ok(Job::Request(request, reply)) => {
                     let _ = reply.send(self.host.handle(request));

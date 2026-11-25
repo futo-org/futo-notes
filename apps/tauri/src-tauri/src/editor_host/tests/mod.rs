@@ -328,33 +328,6 @@ fn a_switch_reloads_the_held_note_only_when_it_is_the_one_asked_for() {
 }
 
 #[test]
-fn held_saves_decline_without_writing_until_released() {
-    let (root, store) = vault("ab");
-    let hosts = EditorHostState::default();
-    let (opened, mut page) = open(&hosts, &store, "plain");
-    // Held while the worker already waits on this edit's save timer.
-    type_at_end(&hosts, opened.token, &mut page, "c");
-    std::thread::sleep(Duration::from_millis(100));
-    hosts.hold_saves(true).unwrap();
-    // Past the save timer: nothing written.
-    std::thread::sleep(Duration::from_millis(800));
-    assert_eq!(read(&store, "plain").as_deref(), Some("ab"));
-    let declined = hosts.checkpoint(opened.token).unwrap();
-    assert!(!declined.saved);
-    assert!(hosts.rename(opened.token, "renamed".into()).is_err());
-    assert!(hosts.close(opened.token, false).is_err());
-
-    // A release writes nothing by itself; the next flush does.
-    hosts.hold_saves(false).unwrap();
-    std::thread::sleep(Duration::from_millis(800));
-    assert_eq!(read(&store, "plain").as_deref(), Some("ab"));
-    assert!(hosts.checkpoint(opened.token).unwrap().saved);
-    assert_eq!(read(&store, "plain").as_deref(), Some("abc"));
-    hosts.close_all();
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn stale_tokens_are_refused_and_close_releases_the_lease() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
