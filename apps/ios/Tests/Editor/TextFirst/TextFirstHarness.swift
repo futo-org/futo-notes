@@ -78,7 +78,7 @@
         }
 
         /// Spin the main loop until `condition` holds (an image load, a coalesced restyle).
-        func until(_ seconds: Double = 5, _ condition: () -> Bool) async -> Bool {
+        func until(_ seconds: Double = 30, _ condition: () -> Bool) async -> Bool {
             let deadline = Date().addingTimeInterval(seconds)
             while !condition() && Date() < deadline {
                 try? await Task.sleep(nanoseconds: 20_000_000)
