@@ -20,13 +20,18 @@ export function runIn(root, command, args, capture = false) {
   return result.stdout?.trim();
 }
 
-export function editorWasmTools(root) {
-  const lock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
-  const version = lock.match(/name = "wasm-bindgen"\nversion = "([^"]+)"/)?.[1];
+export function lockedWasmBindgenVersion(lock) {
+  // \r?\n: a Windows checkout (git's autocrlf) has CRLF line endings.
+  const version = lock.match(/name = "wasm-bindgen"\r?\nversion = "([^"]+)"/)?.[1];
   if (!version) throw new Error('Cargo.lock must contain wasm-bindgen');
+  return version;
+}
+
+export function editorWasmTools(root) {
+  const version = lockedWasmBindgenVersion(readFileSync(join(root, 'Cargo.lock'), 'utf8'));
   const target = resolve(root, process.env.CARGO_TARGET_DIR ?? 'target');
   const installed = runIn(root, 'rustup', ['target', 'list', '--installed'], true);
-  if (!installed.split('\n').includes('wasm32-unknown-unknown')) {
+  if (!installed.split(/\r?\n/).includes('wasm32-unknown-unknown')) {
     runIn(root, 'rustup', ['target', 'add', 'wasm32-unknown-unknown']);
   }
   let cli = process.env.WASM_BINDGEN ?? 'wasm-bindgen';
