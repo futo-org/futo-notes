@@ -90,8 +90,11 @@ struct TextFirstNoteScreen: View {
                     TextFirstCompletionList(
                         model: controller.completionModel, localization: localization,
                         accept: { controller.acceptCompletion(noteId: $0) },
-                        dismiss: { controller.dismissCompletion() })
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        dismiss: { controller.dismissCompletion() }
+                    )
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.size.height
+                    } action: {
                         completionHeight = $0
                     }
                 } else {
@@ -101,7 +104,9 @@ struct TextFirstNoteScreen: View {
             // A layout sibling above the keyboard, so the note never runs under the bar.
             if let controller {
                 TextFirstFindBar(model: controller.findModel, controller: controller)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.size.height
+                    } action: {
                         findBarHeight = $0
                     }
             }
