@@ -275,22 +275,5 @@ class TextFirstBulkUpdateTest {
         )
     }
 
-    private fun exercise(check: Rig.() -> Unit) {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = File(context.cacheDir, "bulk-update-${UUID.randomUUID()}").apply { check(mkdirs()) }
-        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
-        lateinit var controller: TextFirstController
-        try {
-            scenario.onActivity { activity ->
-                controller = createTextFirstController(activity, { error("renderer-only fixture has no engine") }, root)
-                activity.setContentView(controller.view)
-                controller.view.apply(UiUpdate(1, "old\n", emptyList(), 0, 0, -1, -1, emptyList(), 0L))
-                Rig(controller.view).check()
-            }
-        } finally {
-            scenario.onActivity { controller.dispose() }
-            scenario.close()
-            root.deleteRecursively()
-        }
-    }
+    private fun exercise(check: Rig.() -> Unit) = rendererOnlyView("bulk-update") { Rig(it).check() }
 }

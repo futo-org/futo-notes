@@ -42,6 +42,8 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
     internal val textWatchers = ArrayList<TextWatcher>()
     internal var rendererChange: RendererChange? = null
     internal val spanWatchers = ArrayList<SpanWatcher>()
+    /** Span notices, held during a renderer update until its text watchers have run ([ChunkedSpanNotices]). */
+    internal val spanNotices = ChunkedSpanNotices(this)
     private val watcherFlags = LinkedHashMap<Any, Int>()
     private var filters: Array<InputFilter> = emptyArray()
     /** Spans with SPAN_PRIORITY bits; while there are none, queries skip the priority sort. */
@@ -171,9 +173,8 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         chunk.added(what)
         home[what] = chunk
         if (rendererChange == null || what !is TfSpan) {
-            val watchers = spanWatchers.toTypedArray()
-            if (old == null) for (w in watchers) w.onSpanAdded(this, what, start, end)
-            else for (w in watchers) w.onSpanChanged(this, what, oldStart, oldEnd, start, end)
+            if (old == null) spanNotices.notice(SpanNotice(SpanNotice.ADDED, what, -1, -1, start, end))
+            else spanNotices.notice(SpanNotice(SpanNotice.CHANGED, what, oldStart, oldEnd, start, end))
         }
         if (last != first || chunk.text.length > max) splitIfLarge(indexOf(chunk))
     }
@@ -192,9 +193,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         chunk.text.removeSpan(what)
         chunk.removed(what)
         home.remove(what)
-        if (rendererChange == null || what !is TfSpan) {
-            for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, what, start, end)
-        }
+        if (rendererChange == null || what !is TfSpan) spanNotices.notice(SpanNotice(SpanNotice.REMOVED, what, -1, -1, start, end))
     }
 
     override fun getSpanStart(tag: Any): Int {
@@ -324,16 +323,19 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
             // Fold an emptied chunk into a neighbour so lookups never land on it.
             if (first + 1 < chunks.size) merge(first, first + 1) else merge(first - 1, first)
         }
-        for ((span, s0, e0) in dropped) if (rendererChange == null || span !is TfSpan) {
-            for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, span, s0, e0)
-        }
         for (w in watchers) w.onTextChanged(this, st, before, after)
         for (w in watchers) w.afterTextChanged(this)
+        // After the text watchers, which bring the layout to this text ([ChunkedSpanNotices]). The span was in the
+        // replaced range, which now ends at st + after.
+        for ((span, s0, e0) in dropped) if (rendererChange == null || span !is TfSpan) {
+            spanNotices.notice(SpanNotice(SpanNotice.REMOVED, span, -1, -1, minOf(s0, st + after), minOf(e0, st + after)))
+        }
         selection?.afterReplace(st + after)
         return this
     }
 
     override fun replace(st: Int, en: Int, text: CharSequence): Editable = replace(st, en, text, 0, text.length)
+
     override fun clearSpans() { for (span in home.keys.toList()) removeSpan(span) }
 
     override fun setFilters(filters: Array<InputFilter>) { this.filters = filters.copyOf() }

@@ -92,3 +92,26 @@ internal fun textFirstSession(raw: String, vaultFiles: (File) -> Unit = {}, body
         root.deleteRecursively()
     }
 }
+
+/**
+ * A note view whose controller has no engine, already showing "old\n", for tests that hand the renderer updates
+ * themselves. Runs [body] on the main thread and disposes of the view afterwards.
+ */
+internal fun rendererOnlyView(name: String, body: (TextFirstEditText) -> Unit) {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val root = File(context.cacheDir, "$name-${UUID.randomUUID()}").apply { check(mkdirs()) }
+    val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+    lateinit var controller: TextFirstController
+    try {
+        scenario.onActivity { activity ->
+            controller = createTextFirstController(activity, { error("renderer-only fixture has no engine") }, root)
+            activity.setContentView(controller.view)
+            controller.view.apply(UiUpdate(1, "old\n", emptyList(), 0, 0, -1, -1, emptyList(), 0L))
+            body(controller.view)
+        }
+    } finally {
+        scenario.onActivity { controller.dispose() }
+        scenario.close()
+        root.deleteRecursively()
+    }
+}

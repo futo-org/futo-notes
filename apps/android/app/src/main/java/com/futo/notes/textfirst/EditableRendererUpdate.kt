@@ -45,6 +45,9 @@ internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windo
         throw error
     } finally {
         chunked.rendererChange = null
+        val held = chunked.spanNotices.take()
+        // No text changed: what was held, if anything, is true of the laid-out text.
+        if (!began) try { chunked.spanNotices.send(held) } catch (error: Throwable) { primary?.addSuppressed(error) }
         if (began) {
             val landed = if (length == oldLength - change.before + change.after) change
                 else RendererChange(0, oldLength, length)
@@ -59,10 +62,11 @@ internal fun Editable.withRendererUpdate(view: TextView, update: UiUpdate, windo
             val layoutAfter = view.layout
             if (layoutAfter != null && layoutAfter === layoutBefore &&
                 layoutAfter.lineCount == linesBefore && layoutAfter.height != heightBefore
-            ) chunked.redrawFrom(landed.start)
+            ) try { chunked.redrawFrom(landed.start) } catch (error: Throwable) { remember(error) }
             for (watcher in watchers) try {
                 watcher.afterTextChanged(this)
             } catch (error: Throwable) { remember(error) }
+            try { chunked.spanNotices.send(held) } catch (error: Throwable) { remember(error) }
             try { selection?.afterReplace(landed.start + landed.after) }
             catch (error: Throwable) { remember(error) }
             completionError?.let { error ->
