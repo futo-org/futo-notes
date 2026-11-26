@@ -75,6 +75,18 @@ class TextFirstCaretTest {
         assertEquals("room above the capitals against below the descenders", (baseline + seen.top - caret.first).toFloat(), (caret.last - baseline - seen.bottom).toFloat(), 2f)
     }
 
+    /**
+     * Samsung's Editor (One UI 5, S20 Ultra, crash reports #1856–#1858) copies the caret when it first shows the
+     * insertion handle: `getTextCursorDrawable().getConstantState().newDrawable()`. A caret with no constant state
+     * crashed the tap that placed it.
+     */
+    @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
+    @Test fun theCaretCanBeCopiedTheWaySamsungsInsertionHandleCopiesIt() = textFirstSession("text\n") { c ->
+        val caret = checkNotNull(c.view.textCursorDrawable) { "the note view has a caret drawable" }
+        val state = checkNotNull(caret.constantState) { "the caret has a constant state to copy" }
+        assertNotNull("the copy is a drawable", state.newDrawable())
+    }
+
     /** The blank line above a heading is drawn half height, but its caret is as tall as the one on a line of text. */
     @Test fun caretOnABlankLineIsAsTallAsOnALineOfText() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

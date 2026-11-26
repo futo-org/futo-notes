@@ -34,6 +34,13 @@ private class TextHeightCaret(caret: Drawable, private val view: TextFirstEditTe
     private var besidePhoto = false
     private var dueOverPhoto = false
 
+    /**
+     * Samsung's Editor (One UI 5) copies the caret through its constant state when it first shows the insertion
+     * handle, and crashed on the null a DrawableWrapper made this way returns (crash reports #1856–#1858). It draws
+     * the copy in its own popup at bounds it sets, so the copy is the platform caret, with its tint, not this.
+     */
+    override fun getConstantState(): ConstantState? = drawable?.constantState
+
     override fun draw(canvas: android.graphics.Canvas) {
         if (besidePhoto) dueOverPhoto = true else super.draw(canvas)
     }
