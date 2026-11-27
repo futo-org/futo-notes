@@ -13,6 +13,8 @@ class RenderWorkTest {
     @Test fun visibleDeltasAndUnseenDeltasRemainDistinct() {
         assertFalse(requiresPrefixReset(listOf(TextEdit(0, 100, ""), TextEdit(0, 5_900, "x")), 6_100))
         assertTrue(requiresPrefixReset(listOf(TextEdit(6_001, 6_001, "x")), 6_000))
+        assertTrue(fitsShownPrefix(listOf(TextEdit(6_000, 6_000, "x")), 6_000))
+        assertFalse("a word put back in the unshown tail", fitsShownPrefix(listOf(TextEdit(6_003, 6_003, "paragraph")), 6_000))
     }
     @Test fun rawMarkedPrefixIsBoundedEvenWithoutLineBreaksAndDoesNotSplitEmoji() {
         assertEquals(6_000, rawPrefixEnd("X".repeat(20_000), 6_000))

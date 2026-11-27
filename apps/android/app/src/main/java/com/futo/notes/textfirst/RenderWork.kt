@@ -28,15 +28,20 @@ internal class RenderWork {
     }
 }
 
-/** Decide whether ordered renderer deltas still fit the prefix they are applied against. */
-internal fun requiresPrefixReset(edits: List<TextEdit>, shown: Int): Boolean {
+/** Whether ordered renderer deltas each land inside the [shown] prefix the view holds when they arrive. */
+internal fun fitsShownPrefix(edits: List<TextEdit>, shown: Int): Boolean {
     var available = shown
     for (edit in edits) {
-        if (edit.end > available || edit.text.length > OpenSlices.NEXT_CHARS * 2 || edit.end - edit.start > OpenSlices.NEXT_CHARS * 2) return true
+        if (edit.end > available) return false
         available += edit.text.length - (edit.end - edit.start)
     }
-    return false
+    return true
 }
+
+/** Decide whether ordered renderer deltas still fit the prefix they are applied against, and are small enough to apply. */
+internal fun requiresPrefixReset(edits: List<TextEdit>, shown: Int): Boolean =
+    !fitsShownPrefix(edits, shown) ||
+        edits.any { it.text.length > OpenSlices.NEXT_CHARS * 2 || it.end - it.start > OpenSlices.NEXT_CHARS * 2 }
 
 /** A renderer prefix may cut a long marked line, but never a UTF-16 surrogate pair. */
 internal fun rawPrefixEnd(text: CharSequence, limit: Int): Int {

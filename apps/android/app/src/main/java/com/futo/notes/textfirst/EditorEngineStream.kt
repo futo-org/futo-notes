@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.os.SystemClock
+import android.util.Log
 import uniffi.futo_notes_ffi.EditorSessionException
 
 // Progressive open: a long note shows its first screens at once and the rest
@@ -121,6 +122,19 @@ internal fun EditorEngine.resetMarkedView(edits: List<TextEdit>) {
     val shown = rawPrefixEnd(mirror.text, OpenSlices.FIRST_CHARS)
     tailLength = mirror.text.length - shown
     postUpdate(edits, emptyList(), reset = mirror.text.substring(0, shown), preserveScroll = true, paced = true)
+}
+
+/**
+ * Every delta posted to the view must land in the prefix it holds, which is [tailStart] less the deltas themselves; the
+ * view throws on one that does not ("Renderer footprint outside the Editable", #1874). A caller that measured them
+ * against the whole note is a bug: say so, and send the view its prefix again instead. True when it did.
+ */
+internal fun EditorEngine.resetIfOutsideView(edits: List<TextEdit>, sourceChanged: Boolean): Boolean {
+    val held = tailStart() - edits.sumOf { it.text.length - (it.end - it.start) }
+    if (fitsShownPrefix(edits, held)) return false
+    Log.e(EditorEngine.TAG, "edits ${edits.joinToString { "[${it.start},${it.end})+${it.text.length}" }} fall outside the $held characters the view holds; resetting it")
+    if (mirror.overlay == null) resetViewProgressively(edits, sourceChanged) else resetMarkedView(edits)
+    return true
 }
 
 /** Append without replacing a newer touch selection; the view extends only its still-clipped range. */

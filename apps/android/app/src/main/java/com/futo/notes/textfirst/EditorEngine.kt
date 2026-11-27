@@ -329,6 +329,7 @@ internal class EditorEngine(
     internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false, marked: List<SpanSpec.Inline>? = null) {
         val left = delimiterRowLeftAt.also { delimiterRowLeftAt = -1 }
         if (left >= 0 && edits.isEmpty() && reset == null) return postUpdate(edits, windows + planStyleWindow(left, left), preserveScroll = preserveScroll, paced = paced, marked = marked)
+        if (reset == null && edits.isNotEmpty() && resetIfOutsideView(edits, sourceChanged)) return
         seq += 1
         viewEdits.record(seq, edits)
         val update = UiUpdate(

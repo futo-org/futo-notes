@@ -169,11 +169,13 @@ internal fun EditorEngine.commitComposition(value: String?) {
         accept(change)
     } else {
         // Nothing changed: the committed text equals what was there.
+        val shown = tailStart()
         val edits = ArrayList<TextEdit>(1)
         mirror.replace(o.start, o.start + o.marked.length, o.original, edits)
         mirror.overlay = null
         mirror.selStart = o.start + o.original.length; mirror.selEnd = mirror.selStart
-        if (edits.any { it.text.length > OpenSlices.NEXT_CHARS * 2 || it.end > tailStart() }) resetViewProgressively(edits)
+        // Measured against what the view held before the revert, as acceptViewChange does (#1874).
+        if (requiresPrefixReset(edits, shown)) resetViewProgressively(edits)
         else postUpdate(edits, listOf(planStyleWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
     }
     streamTail(0)

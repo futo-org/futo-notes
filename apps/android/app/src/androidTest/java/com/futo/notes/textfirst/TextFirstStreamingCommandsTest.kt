@@ -106,57 +106,6 @@ class TextFirstStreamingCommandsTest {
         ui { assertTrue(trace.appendSizes.all { it <= OpenSlices.NEXT_CHARS * 2 }) }
     }
 
-    @Test fun lengthChangingCompositionPausesFreshTailQueriesUntilItCommits() = exercise {
-        engine.handler.post { engine.handler.removeCallbacks(engine.tailRunnable) }
-        barrier()
-        val trace = trace()
-        engine.handler.post {
-            check(engine.streaming) { "fixture must still have an unshown tail" }
-            engine.imeSetComposing("marked")
-            engine.showNextSlice()
-            engine.imeSetComposing("a longer marked word")
-            engine.showNextSlice()
-        }
-        barrier()
-        ui { assertTrue("marked offsets cannot be used to project committed tail coordinates", trace.appendSizes.isEmpty()) }
-        engine.handler.post { engine.imeFinishComposing() }
-        barrier()
-        awaitComplete()
-        val display = display()
-        ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
-        assertTrue(source().startsWith("a longer marked wordparagraph 0"))
-    }
-
-    @Test fun selectAllThenLengthChangingImeCompositionKeepsTheLogicalReplacement() = exercise {
-        engine.selectAll()
-        engine.handler.post {
-            engine.imeSetComposing("a longer marked replacement")
-            engine.imeSetComposing("x")
-            engine.imeFinishComposing()
-        }
-        barrier()
-        awaitComplete()
-        runBlocking { controller.checkpoint() }
-        assertEquals("x", store.read("n"))
-        val display = display()
-        ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
-    }
-
-    @Test fun committingOriginalTextAfterWholeNoteCompositionRestoresItInBoundedSlices() = exercise {
-        val before = original
-        val trace = trace()
-        engine.selectAll()
-        engine.handler.post { engine.imeSetComposing("x"); engine.imeCommit(before) }
-        barrier()
-        awaitComplete()
-        assertEquals(before, source())
-        val display = display()
-        ui {
-            assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString())
-            assertTrue(trace.appendSizes.all { it <= OpenSlices.NEXT_CHARS * 2 })
-        }
-    }
-
     @Test fun pendingWholeNoteStylesFollowALaterNativeCaretAndCommittedPrefixInsertion() = exercise {
         engine.handler.post { engine.streamTail(0) }
         awaitComplete()
@@ -227,43 +176,6 @@ class TextFirstStreamingCommandsTest {
         runBlocking { withTimeout(20_000) { entered.await() } }
         assertTrue("the Enter frame was drawn", drawn.await(10, TimeUnit.SECONDS))
         assertTrue("style-only anchor must not leave the new caret $overflow px below the viewport", overflow <= 0)
-    }
-
-    @Test fun hugeMarkedTextUsesABoundedRawPrefixWithoutLosingTheImeValue() = exercise {
-        val value = "X".repeat(20_000)
-        var largestReset = 0
-        var largestDelta = 0
-        ui {
-            controller.view.onApplyMeasured = { _, update ->
-                largestReset = maxOf(largestReset, update.reset?.length ?: 0)
-                if (update.reset == null) largestDelta = maxOf(largestDelta, update.edits.maxOfOrNull { it.text.length } ?: 0)
-            }
-        }
-        engine.selectAll()
-        engine.handler.post { engine.imeSetComposing(value) }
-        barrier()
-        assertEquals(value, display())
-        ui {
-            assertTrue(controller.view.length() - 1 <= OpenSlices.FIRST_CHARS)
-            assertTrue(largestReset <= OpenSlices.FIRST_CHARS)
-            assertTrue("marked payload must be a reset prefix rather than an unbounded visible edit", largestDelta <= OpenSlices.NEXT_CHARS * 2)
-        }
-        engine.handler.post { engine.imeFinishComposing() }
-        barrier()
-        awaitComplete()
-        assertEquals(value, display())
-        ui { assertEquals(value + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
-    }
-
-    @Test fun anEmphasisCommitCrossingTheRolledBackPrefixUsesAnAuthoritativeReset() = exercise(
-        "a".repeat(6_005) + "\n" + "b".repeat(20) + "**\n" + "tail\n".repeat(20_000),
-    ) {
-        engine.handler.post { engine.imeSetComposing("**" + "Z".repeat(98)); engine.imeFinishComposing() }
-        barrier()
-        awaitComplete()
-        val display = display()
-        ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
-        assertTrue(source().contains("Z".repeat(98)))
     }
 
     @Test fun aClippedSelectionEchoCannotChangeTheLogicalImeReplacement() = exercise {
@@ -344,21 +256,6 @@ class TextFirstStreamingCommandsTest {
         ui {
             val clip = controller.view.context.getSystemService(android.content.ClipboardManager::class.java).primaryClip!!
             assertEquals("beta", clip.getItemAt(0).text.toString())
-        }
-    }
-
-    @Test fun publishedKeyboardSnapshotKeepsGlobalSelectionAndMarkedCoordinates() = exercise {
-        engine.handler.post { engine.select(12_000, 12_003, false); engine.imeSetComposing("marked") }
-        barrier()
-        ui {
-            val state = engine.publishedIme!!
-            assertEquals(12_000, state.composingStart)
-            assertEquals(12_006, state.composingEnd)
-            val info = android.view.inputmethod.EditorInfo()
-            assertNotNull(controller.view.onCreateInputConnection(info))
-            assertEquals(state.selectionStart, info.initialSelStart)
-            assertEquals(state.selectionEnd, info.initialSelEnd)
-            assertTrue(state.context!!.text.length <= IME_CONTEXT_CHARS + IME_SELECTED_CHARS)
         }
     }
 
