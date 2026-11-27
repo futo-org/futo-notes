@@ -92,6 +92,19 @@
     ]),
   );
 
+  // Clicking away commits. Closing the field is not clicking away, but Chromium (WebView2) blurs a
+  // focused field synchronously as Svelte removes it, so the blur can land inside Svelte's DOM
+  // update, where writing state throws `state_unsafe_mutation` (crash #1875). Decide after that
+  // update: a field that is gone by then was closed, and commits nothing. A blur while a rename is
+  // in flight starts no second one, even if that rename settles before the deferred check. Reading
+  // state inside Svelte's update is safe; `untrack` keeps it off the update's dependencies.
+  function handleFocusChange(field: HTMLInputElement, focused: boolean): void {
+    if (focused || untrack(() => isSubmitting)) return;
+    queueMicrotask(() => {
+      if (field.isConnected && !isSubmitting) void submit(false);
+    });
+  }
+
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -126,8 +139,7 @@
     autocapitalize="none"
     spellcheck="false"
     onkeydown={handleKeydown}
-    {@attach (field) =>
-      listenForFocusChange(field, (focused) => !focused && !isSubmitting && void submit(false))}
+    {@attach (field) => listenForFocusChange(field, (focused) => handleFocusChange(field, focused))}
     data-testid={testId}
   />
 </span>
